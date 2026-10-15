@@ -65,7 +65,7 @@ local settings,saveSettings,settingsPersistent=createVisualizerSettings({
     http=game:GetService("HttpService"),placeId=game.PlaceId,
     readfile=readfile,writefile=writefile,env=env})
 local persistSettings
-local state = {
+local state: any = {
     alive = true, hideRoom = settings.hideRoom, connections = {},
     giftTitles = setmetatable({}, {__mode = "k"}),
     targets = setmetatable({}, {__mode = "k"}), avatarToken = 0,
@@ -550,7 +550,7 @@ local function createV8Additions(api)
         if not animator then api.onStatus("Chưa có Animator của game"); return end
         self.generation = self.generation + 1
         local token = self.generation
-        local bank = {packKey=packKey, tracks = {}, resources = {}, connections = {}, currentPose = nil}
+        local bank: any = {packKey=packKey, tracks = {}, resources = {}, connections = {}, currentPose = nil}
         self.pending = bank
         api.onToggle(self.enabled, true, self.activePack, packKey)
         api.onStatus("Đang tải adidas " .. pack.name .. "...")
@@ -669,7 +669,7 @@ local function createV8Additions(api)
     return extras
 end
 local function createR6Locomotion(api, model, humanoid, character, isCurrent)
-    local driver = {closed = false, ready = false, resources = {}, tracks = {}}
+    local driver: any = {closed = false, ready = false, resources = {}, tracks = {}}
     local ids = {idle = 180435571, walk = 180426354, jump = 125750702,
         fall = 180436148, climb = 180436334}
     local controller = api.Instance.new("AnimationController")
@@ -817,7 +817,7 @@ local function createV8BodyDisplay(api)
 
     function display:Apply(source, snapshot, description)
         local model = source:Clone()
-        local body = {model = model, saved = {}, connections = {}}
+        local body: any = {model = model, saved = {}, connections = {}}
         snapshot.bodyDisplay = body
         model.Name = "GiftPlayerV8BodyDisplay"
         local renderer = model:FindFirstChildOfClass("Humanoid")
@@ -1003,7 +1003,7 @@ local function createV8BodyDisplay(api)
     return display
 end
 local function createRoomR6Locomotion(api, model, humanoid, character, isCurrent)
-    local driver = {closed = false, ready = false, resources = {}, tracks = {}}
+    local driver: any = {closed = false, ready = false, resources = {}, tracks = {}}
     local ids = {idle = 180435571, walk = 180426354, jump = 125750702,
         fall = 180436148, climb = 180436334}
     local controller = model:FindFirstChildOfClass("Humanoid")
@@ -1125,7 +1125,7 @@ local function createRoomBodyDisplay(api)
 
     function display:Apply(source, snapshot, description)
         local model = source:Clone()
-        local body = {model = model, saved = {}, connections = {}}
+        local body: any = {model = model, saved = {}, connections = {}}
         snapshot.bodyDisplay = body
         model.Name = "GiftPlayerV8BodyDisplay"
         local renderer = model:FindFirstChildOfClass("Humanoid")
@@ -1318,7 +1318,7 @@ local function createRoomBodyDisplay(api)
     return display
 end
 local function createMoonbloomNative(api)
-    local effect={enabled=false,objects={},generation=0,alive=true}
+    local effect: any={enabled=false,objects={},generation=0,alive=true}
     local clock=api.clock or os.clock
     local fxClasses={Trail=true,Beam=true,ParticleEmitter=true,PointLight=true,SpotLight=true,SurfaceLight=true,
         Fire=true,Smoke=true,Sparkles=true}
@@ -2645,18 +2645,11 @@ local function addScrambleSwordFX(api, prepared, source)
     local glow=api.Instance.new("PointLight")
     glow.Name="ScrambleBladeGlow"
     glow.Color=api.Color3.fromRGB(52,255,166)
-    glow.Brightness=.65
-    glow.Range=3
+    glow.Brightness=.35
+    glow.Range=2.5
     glow.Shadows=false
     glow.Enabled=false
     glow.Parent=blade
-
-    local function surface(part)
-        local s=part.Size
-        if s.X<=s.Y and s.X<=s.Z then return api.CFrame.new(s.X*.5+.06,0,0) end
-        if s.Z<=s.Y then return api.CFrame.new(0,0,s.Z*.5+.06) end
-        return api.CFrame.new(0,s.Y*.5+.06,0)
-    end
     local aura
     local selected={}
     local count=#blades
@@ -2666,33 +2659,19 @@ local function addScrambleSwordFX(api, prepared, source)
             selected[part]=true
             local anchor=api.Instance.new("Attachment")
             anchor.Name="ScrambleFlameAnchor"
-            anchor.CFrame=surface(part)
+            anchor.CFrame=api.CFrame.new()
             anchor.Parent=part
-            local fire=api.Instance.new("ParticleEmitter")
+            local fire=api.Instance.new("Fire")
             fire.Name=aura and "ScrambleBladeFlame" or "ScrambleBladeAura"
-            fire.Texture="rbxassetid://12972038293"
-            fire.Color=api.ColorSequence.new(api.Color3.fromRGB(166,255,47),api.Color3.fromRGB(33,231,156))
-            fire.Size=api.NumberSequence.new({
-                api.NumberSequenceKeypoint.new(0,.42),
-                api.NumberSequenceKeypoint.new(.48,.7),
-                api.NumberSequenceKeypoint.new(1,.16)})
-            fire.Transparency=api.NumberSequence.new({
-                api.NumberSequenceKeypoint.new(0,.22),
-                api.NumberSequenceKeypoint.new(.55,.34),
-                api.NumberSequenceKeypoint.new(1,1)})
-            fire.Lifetime=api.NumberRange.new(.38,.65)
-            fire.Speed=api.NumberRange.new(.08,.22)
-            fire.Rate=6
-            fire.Drag=3
-            fire.LightEmission=.55
-            fire.LightInfluence=0
-            fire.LockedToPart=true
-            fire.ZOffset=.2
-            fire.SpreadAngle=api.Vector2.new(22,22)
+            fire.Color=api.Color3.fromRGB(49,218,75)
+            fire.SecondaryColor=api.Color3.fromRGB(29,226,174)
+            fire.Size=2
+            fire.Heat=.6
+            fire.TimeScale=.65
             fire.Enabled=false
             fire.Parent=anchor
             aura=aura or fire
-            prepared.effects[#prepared.effects+1]={clone=fire,enabled=true,count=fire==aura and 5 or 2,delay=0,duration=.2}
+            prepared.effects[#prepared.effects+1]={clone=fire,enabled=true,delay=0,duration=.2}
         end
     end
     local size=blade.Size
