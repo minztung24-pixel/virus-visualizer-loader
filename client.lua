@@ -1580,7 +1580,7 @@ local function createRoomBodyDisplay(api)
     return display
 end
 local function createMoonbloomNative(api)
-    local effect: any={enabled=false,objects={},generation=0,alive=true}
+    local effect: any={enabled=false,objects={},cloneObjects={},generation=0,alive=true}
     local clock=api.clock or os.clock
     local fxClasses={Trail=true,Beam=true,ParticleEmitter=true,PointLight=true,SpotLight=true,SurfaceLight=true,
         Fire=true,Smoke=true,Sparkles=true}
@@ -1589,9 +1589,20 @@ local function createMoonbloomNative(api)
         for _,item in ipairs(effect.objects) do item:Destroy() end
         effect.objects={}
     end
+    local function clearClone()
+        if effect.cloneRender then effect.cloneRender:Disconnect(); effect.cloneRender=nil end
+        for _,item in ipairs(effect.cloneObjects) do item:Destroy() end
+        effect.cloneObjects={}
+        effect.cloneAttachedRoot=nil
+    end
+    local function ownClone(item)
+        effect.cloneObjects[#effect.cloneObjects+1]=item
+        return item
+    end
     function effect:Disable()
         self.generation+=1; self.pending=nil
         if self.render then self.render:Disconnect(); self.render=nil end
+        clearClone()
         clear(); self.enabled=false
         if api.onToggle then api.onToggle(false) end
     end
@@ -1636,7 +1647,8 @@ local function createMoonbloomNative(api)
         end
         return nil
     end
-    local function copyTemplate(template,root)
+    local function copyTemplate(template,root,track,bindRender)
+        local own=track
         local all=contents(template)
         if not all then error("Mẫu Moonbloom không có hiệu ứng gốc") end
         local reference=template:IsA("BasePart") and template or template:IsA("Model") and template.PrimaryPart
@@ -1682,7 +1694,7 @@ local function createMoonbloomNative(api)
                 for _,entry in ipairs(nativeParts) do entry.part.CFrame=root.CFrame*entry.offset end
             end
             sync()
-            effect.render=api.RunService.RenderStepped:Connect(sync)
+            bindRender(api.RunService.RenderStepped:Connect(sync))
         end
         local mapped,copied={},0
         local function attachment(source)
@@ -1717,6 +1729,23 @@ local function createMoonbloomNative(api)
         end
         return copied>0
     end
+    function effect:SetCloneRoot(root)
+        if self.cloneAttachedRoot==root and root and root.Parent then return end
+        self.cloneRoot=root
+        clearClone()
+        if not root or not root.Parent or not self.enabled or not self.template or not self.template.Parent then return end
+        local ok,result=pcall(function()
+            return copyTemplate(self.template,root,ownClone,function(connection)
+                self.cloneRender=connection
+            end)
+        end)
+        if ok and result then
+            self.cloneAttachedRoot=root
+        else
+            clearClone()
+            warn("[Moonbloom clone] "..tostring(result))
+        end
+    end
     function effect:Enable()
         self:Disable()
         local character=api.player.Character
@@ -1738,11 +1767,16 @@ local function createMoonbloomNative(api)
                 api.onStatus("Chưa có Moonbloom gốc / bấm Quét mẫu game"); return
             end
             if api.player.Character~=character or h.Health<=0 then self:Disable(); return end
-            local copied,result=pcall(function() return copyTemplate(template,root) end)
+            local copied,result=pcall(function()
+                return copyTemplate(template,root,own,function(connection)
+                    self.render=connection
+                end)
+            end)
             if not copied or not result then
                 self:Disable(); api.onStatus("Moonbloom gốc lỗi: "..tostring(result):sub(1,55)); return
             end
             self.enabled=true
+            if self.cloneRoot then self:SetCloneRoot(self.cloneRoot) end
             if api.onToggle then api.onToggle(true) end
             api.onStatus("Moonbloom / hiệu ứng gốc trong game")
         end)
@@ -1750,6 +1784,7 @@ local function createMoonbloomNative(api)
     function effect:Destroy()
         if not self.alive then return end
         self.alive=false; self:Disable()
+        self.cloneRoot=nil
         if self.respawn then self.respawn:Disconnect() end
     end
     effect.respawn=api.player.CharacterAdded:Connect(function() effect:Disable() end)
@@ -3441,6 +3476,9 @@ local moonbloom = createMoonbloomNative({Instance=Instance, player=localPlayer, 
         moonButton.Text = enabled and "Moonbloom Trail: BẬT" or "Moonbloom Trail: TẮT"
         moonButton.BackgroundColor3 = enabled and Color3.fromRGB(57,161,112) or Color3.fromRGB(69,58,94)
     end})
+state.SetMoonbloomCloneRoot = function(root)
+    moonbloom:SetCloneRoot(root)
+end
 local weaponReportFrame,weaponReportBox
 local function showWeaponReport(report)
     if not weaponReportFrame then
@@ -4605,6 +4643,9 @@ local function clearWorld()
 	generation += 1
 	awaitingClick = false
 	selectedPosition = nil
+	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
+		integrationState.SetMoonbloomCloneRoot(nil)
+	end
 	stopControl()
 	restoreCamera()
 	if cameraFollow then cameraFollow:Destroy(); cameraFollow = nil end
@@ -5151,6 +5192,7 @@ local function createOrUpdateClone(autoView)
 			cloneLinks = buildCloneAnimationLinks(newCopy, copyRoot),
 			appearance = appearanceItems(character),
 			sourceAppearance = appearanceSignature(source),
+			moonbloomRoot = source.Name == "GiftPlayerV8BodyDisplay" and copyRoot or nil,
 		}
 		if controlledAnchor then
 			local rise = math.max(0, controlledAnchor.Position.Y
@@ -5171,9 +5213,15 @@ local function createOrUpdateClone(autoView)
 	clearWeaponMirror()
 	clearLegMirror()
 	if poseMirror and poseMirror.cloneDriver then poseMirror.cloneDriver:Destroy() end
+	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
+		integrationState.SetMoonbloomCloneRoot(nil)
+	end
 	if clone then clone:Destroy() end
 	clone = newCopy
 	poseMirror = newPose
+	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
+		integrationState.SetMoonbloomCloneRoot(newPose.moonbloomRoot)
+	end
 	if not cameraFollow then
 		cameraFollow = Instance.new("Part")
 		cameraFollow.Name = "CloneCameraFollow"
