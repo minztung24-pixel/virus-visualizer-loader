@@ -1138,7 +1138,10 @@ local function createV8BodyDisplay(api)
             end
             root.CFrame = realRoot.CFrame * api.CFrame.new(0, body.floorDistance - driverDistance, 0)
             local cloneMotion = not restPose and api.getCloneMotion and api.getCloneMotion()
-            local packMotion = cloneMotion and rig == "R15"
+            -- The selected pack animates the physical R15 rig even when the
+            -- displayed avatar is R6. Retarget those live joint rotations to
+            -- the display instead of replacing them with default R6 clips.
+            local packMotion = cloneMotion
                 and humanoid.RigType == api.Enum.HumanoidRigType.R15
                 and api.isPackActive and api.isPackActive()
             if cloneMotion and not packMotion and not body.cloneDriver
@@ -1484,7 +1487,8 @@ local function createRoomBodyDisplay(api)
             end
             root.CFrame = realRoot.CFrame * api.CFrame.new(0, body.floorDistance - driverDistance, 0)
             local cloneMotion = not restPose and api.getCloneMotion and api.getCloneMotion()
-            local packMotion = cloneMotion and rig == "R15"
+            -- R6 display bodies also inherit the active pack's live R15 pose.
+            local packMotion = cloneMotion
                 and humanoid.RigType == api.Enum.HumanoidRigType.R15
                 and api.isPackActive and api.isPackActive()
             if cloneMotion and not packMotion and not body.cloneDriver
