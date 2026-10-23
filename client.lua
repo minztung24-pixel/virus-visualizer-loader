@@ -83,13 +83,13 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function getAnchor(model)
-		local head = model:FindFirstChild("Head", true)
-		if head and head:IsA("BasePart") then
-			return head, true
-		end
 		local root = model:FindFirstChild("HumanoidRootPart", true)
 		if root and root:IsA("BasePart") then
 			return root, false
+		end
+		local head = model:FindFirstChild("Head", true)
+		if head and head:IsA("BasePart") then
+			return head, true
 		end
 		return nil, false
 	end
@@ -127,11 +127,10 @@ local function createDeveloperNameplate(api)
 		local anchor = entry.anchor
 		local lift = anchor.Size.Y * 0.5 + 0.85 + height
 		if not entry.isHead then
-			local ok, boundsCFrame, boundsSize = pcall(function()
-				return entry.model:GetBoundingBox()
-			end)
-			if ok then
-				lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5 - anchor.Position.Y + 0.3 + height)
+			local head = entry.model:FindFirstChild("Head", true)
+			if head and head:IsA("BasePart") then
+				lift = math.max(lift, head.Position.Y + head.Size.Y * 0.5
+					- anchor.Position.Y + 0.85 + height)
 			end
 		end
 		entry.gui.StudsOffsetWorldSpace = Vector3.new(0, lift, 0)
@@ -1422,6 +1421,7 @@ local function createV8BodyDisplay(api)
         local body = snapshot and snapshot.bodyDisplay
         if not body then return end
         snapshot.bodyDisplay = nil
+        if body.renderName then api.RunService:UnbindFromRenderStep(body.renderName) end
         for _, connection in ipairs(body.connections) do connection:Disconnect() end
         if body.cloneDriver then body.cloneDriver:Destroy() end
         if body.r6Driver then body.r6Driver:Destroy() end
@@ -1500,6 +1500,11 @@ local function createV8BodyDisplay(api)
             renderer.BreakJointsOnDeath = false
             renderer.DisplayDistanceType = api.Enum.HumanoidDisplayDistanceType.None
             renderer.DisplayName = ""
+            -- Generated models can carry an Animator that keeps writing the
+            -- same joints which sync() positions each frame. Clothing only
+            -- needs the Humanoid; clone locomotion creates its own Animator.
+            local oldAnimator = renderer:FindFirstChildOfClass("Animator")
+            if oldAnimator then oldAnimator:Destroy() end
             body.renderer = renderer
         else
             renderer:Destroy()
@@ -1570,11 +1575,10 @@ local function createV8BodyDisplay(api)
             local realRoot = snapshot.character:FindFirstChild("HumanoidRootPart")
             local humanoid = snapshot.humanoid
             if not realRoot or humanoid.Parent ~= snapshot.character then return end
-            local driverDistance = humanoid.HipHeight + realRoot.Size.Y / 2
-            if humanoid.RigType == api.Enum.HumanoidRigType.R6 then
-                local leg = snapshot.character:FindFirstChild("Left Leg")
-                driverDistance = driverDistance + (leg and leg.Size.Y or 2)
-            end
+            -- A stable floor reference keeps the visual rig from jumping when
+            -- the game changes HipHeight during an action or animation.
+            local driverDistance = body.driverDistance
+                or (humanoid.HipHeight + realRoot.Size.Y / 2)
             root.CFrame = realRoot.CFrame * api.CFrame.new(0, body.floorDistance - driverDistance, 0)
             local cloneMotion = not restPose and api.getCloneMotion and api.getCloneMotion()
             -- The selected pack animates the physical R15 rig even when the
@@ -1648,6 +1652,13 @@ local function createV8BodyDisplay(api)
         end
         body.floorDistance = -(lowestFoot or lowestBody)
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
+        local realRoot = snapshot.character:FindFirstChild("HumanoidRootPart")
+        if not realRoot then error("Thiếu HumanoidRootPart của nhân vật") end
+        body.driverDistance = snapshot.humanoid.HipHeight + realRoot.Size.Y / 2
+        if snapshot.humanoid.RigType == api.Enum.HumanoidRigType.R6 then
+            local leg = snapshot.character:FindFirstChild("Left Leg")
+            body.driverDistance = body.driverDistance + (leg and leg.Size.Y or 2)
+        end
         sync()
         local camera = api.Workspace.CurrentCamera
         if not camera then error("Camera chưa sẵn sàng") end
@@ -1663,7 +1674,9 @@ local function createV8BodyDisplay(api)
                 return snapshot.bodyDisplay == body
             end)
         end
-        body.connections[#body.connections+1] = api.RunService.RenderStepped:Connect(function()
+        body.renderName = "GiftPlayerV8VisualBody"
+        api.RunService:BindToRenderStep(body.renderName,
+            api.Enum.RenderPriority.Character.Value + 2, function()
             local ok, problem = pcall(function()
                 local currentCamera = api.Workspace.CurrentCamera
                 if currentCamera and model.Parent ~= currentCamera then model.Parent = currentCamera end
@@ -5109,6 +5122,7 @@ local function cleanup()
 		return
 	end
 	closed = true
+	RunService:UnbindFromRenderStep(instanceKey .. "Render")
 	clearWorld()
 	for _, connection in ipairs(connections) do
 		connection:Disconnect()
@@ -5210,6 +5224,11 @@ local function prepareCopy(copy)
 	local humanoid = copy:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		humanoid.EvaluateStateMachine = false
+		humanoid.AutomaticScalingEnabled = false
+		humanoid.AutoRotate = false
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if animator then animator:Destroy() end
 	end
 end
 
@@ -5745,7 +5764,8 @@ end
 
 local lastSourceCheck = 0
 local lastPoseWarning = 0
-connect(RunService.RenderStepped, function(dt)
+RunService:BindToRenderStep(instanceKey .. "Render",
+	Enum.RenderPriority.Character.Value + 3, function(dt)
 	if closed then return end
 	updateCloneMovement(dt)
 	if not poseMirror or closed then return end
