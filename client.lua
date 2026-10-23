@@ -1467,6 +1467,11 @@ local function createV8BodyDisplay(api)
         if not lowest then error("Bộ thân không có hình học hiển thị") end
         body.floorDistance = -lowest
         body.rig = rig
+        local nativeFloorDistance = renderer.HipHeight + root.Size.Y / 2
+        if rig == "R6" then
+            local leg = model:FindFirstChild("Left Leg")
+            nativeFloorDistance = nativeFloorDistance + (leg and leg.Size.Y or 2)
+        end
         for _, item in ipairs(model:GetDescendants()) do
             if item:IsA("AnimationConstraint") then
                 local a, b = item.Part0, item.Part1
@@ -1481,10 +1486,8 @@ local function createV8BodyDisplay(api)
                 item:Destroy()
             end
         end
-        -- Classic clothing only renders while a Humanoid is a sibling of
-        -- Shirt/Pants. Layered clothing also needs its rig for wrapping.
-        -- Keep the renderer passive for those avatars; plain body packages
-        -- retain the previous renderer-free path and its established poses.
+        -- Classic and layered clothing need the generated Humanoid for their
+        -- appearance. It has no state machine, physics or collision role.
         local needsClothingRenderer = false
         for _, item in ipairs(model:GetDescendants()) do
             if item:IsA("Shirt") or item:IsA("Pants")
@@ -1501,6 +1504,9 @@ local function createV8BodyDisplay(api)
             renderer.BreakJointsOnDeath = false
             renderer.DisplayDistanceType = api.Enum.HumanoidDisplayDistanceType.None
             renderer.DisplayName = ""
+            renderer.WalkSpeed = 0
+            renderer.JumpPower = 0
+            renderer.JumpHeight = 0
             -- Generated models can carry an Animator that keeps writing the
             -- same joints which sync() positions each frame. Clothing only
             -- needs the Humanoid; clone locomotion creates its own Animator.
@@ -1654,7 +1660,17 @@ local function createV8BodyDisplay(api)
                 end
             end
         end
-        body.floorDistance = -(lowestFoot or lowestBody)
+        -- The generated Humanoid knows its rig's intended root-to-floor
+        -- distance. MeshPart boxes can extend below the visible feet, which
+        -- made full-body outfits hover when aligned by part bounds alone.
+        -- The tiny Doraemon body uses its posed feet and a small mesh inset.
+        if description.smallDoraemon or nativeFloorDistance <= 0
+            or nativeFloorDistance > 12 then
+            body.floorDistance = -(lowestFoot or lowestBody)
+            if description.smallDoraemon then body.floorDistance -= 0.24 end
+        else
+            body.floorDistance = nativeFloorDistance
+        end
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
         sync()
         local camera = api.Workspace.CurrentCamera
@@ -4070,15 +4086,6 @@ local extras = createV8Additions({
         end
     end,
 })
-local scaleFields = {
-    "HeightScale", "WidthScale", "DepthScale", "HeadScale",
-    "BodyTypeScale", "ProportionScale",
-}
-local animationFields = {
-    "IdleAnimation", "WalkAnimation", "RunAnimation", "JumpAnimation",
-    "FallAnimation", "ClimbAnimation", "SwimAnimation", "MoodAnimation",
-}
-
 local function isCosmetic(item)
     return item:IsA("Accoutrement") or item:IsA("Shirt") or item:IsA("Pants")
         or item:IsA("ShirtGraphic") or item:IsA("BodyColors")
@@ -4099,17 +4106,6 @@ restoreAppearance = function(snapshot)
     if not snapshot then return end
     partialLegDisplay:Restore(snapshot)
     bodyDisplay:Restore(snapshot)
-    if snapshot.originalDescription then
-        local original = snapshot.originalDescription
-        snapshot.originalDescription = nil
-        if snapshot.humanoid.Parent == snapshot.character then
-            local ok, problem = pcall(function()
-                snapshot.humanoid:ApplyDescriptionResetAsync(original)
-            end)
-            if not ok then warn("[Gift Player V8] Restore description: " .. tostring(problem)) end
-        end
-        original:Destroy()
-    end
     for _, item in ipairs(snapshot.added) do
         item:Destroy()
     end
@@ -4206,31 +4202,6 @@ end
 local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetData)
     local character = snapshot.character
     local humanoid = snapshot.humanoid
-    if targetData.usePhysicalDescription then
-        -- Same-rig R15 outfits belong on the existing moving Humanoid. This
-        -- keeps the target's body proportions and clothing without a second
-        -- full-size body chasing the player's root every render frame.
-        local sourceHumanoid = sourceModel:FindFirstChildOfClass("Humanoid")
-        if not sourceHumanoid then error("Avatar nguồn thiếu Humanoid") end
-        local target = sourceHumanoid:GetAppliedDescription()
-        local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
-        if not okOriginal or not original then
-            target:Destroy()
-            error("Không lưu được ngoại hình cũ: " .. tostring(original))
-        end
-        snapshot.originalDescription = original
-        local ok, problem = pcall(function()
-            target.UseAvatarSettings = false
-            for _, field in ipairs(animationFields) do
-                target[field] = snapshot.originalDescription[field]
-            end
-            humanoid:ApplyDescriptionResetAsync(target)
-        end)
-        target:Destroy()
-        if not ok then error(problem) end
-        humanoid.DisplayName = username
-        return
-    end
     local head = character:FindFirstChild("Head")
     local sourceHead = faceHead or sourceModel:FindFirstChild("Head")
     for _, item in ipairs(character:GetChildren()) do
@@ -4382,26 +4353,18 @@ local function applyAvatar(rawUsername)
         targetData.sourceRig = hasAccountRig and accountRig or humanoid.RigType.Name
         targetData.forceFullRig = hasAccountRig
             and accountRig ~= humanoid.RigType.Name and not nativeBody
-        -- Same-rig R15 clothing can be applied to the actual local Humanoid,
-        -- preserving the target's dimensions while game movement stays native.
-        targetData.usePhysicalDescription = not nativeBody and not targetData.forceFullRig
-            and targetData.sourceRig == "R15" and humanoid.RigType == Enum.HumanoidRigType.R15
-        targetData.useBody = nativeBody or targetData.forceFullRig
+        -- Keep the target's complete generated body and scale. Applying a
+        -- HumanoidDescription to the game's player Humanoid requires the
+        -- backend server; this local visual body leaves its physics alone.
+        targetData.useBody = true
+        targetData.smallDoraemon = username:lower() == "minztung93vn"
+            or tonumber(description.Head) == 89301538803025
+            or tonumber(description.Torso) == 93022753372861
+            or tonumber(description.LeftLeg) == 126400440981020
+            or tonumber(description.RightLeg) == 136796899725275
         local modelRig = targetData.sourceRig == "R15" and Enum.HumanoidRigType.R15
             or Enum.HumanoidRigType.R6
         pcall(function() description.UseAvatarSettings = false end)
-        if not targetData.useBody and not targetData.usePhysicalDescription then
-            local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
-            if okOriginal and original then
-                local okScale, scaleError = pcall(function()
-                    for _, field in ipairs(scaleFields) do
-                        description[field] = original[field]
-                    end
-                end)
-                if not okScale then warn("[Gift Player V8] Scale: " .. tostring(scaleError)) end
-                original:Destroy()
-            end
-        end
         okModel, model = pcall(function()
             return Players:CreateHumanoidModelFromDescriptionAsync(description, modelRig)
         end)
@@ -4468,10 +4431,6 @@ local function applyAvatar(rawUsername)
         settings.username=username; settings.avatar=username; persistSettings()
         if snapshot.bodyDisplay then
             setStatus("@" .. username .. " / hiển thị " .. snapshot.bodyDisplay.rig .. " / game " .. humanoid.RigType.Name)
-            return
-        end
-        if snapshot.originalDescription then
-            setStatus("@" .. username .. " / body R15 trên nhân vật thật / local")
             return
         end
         local gameRig = humanoid.RigType.Name
