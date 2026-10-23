@@ -149,6 +149,7 @@ local function createDeveloperNameplate(api)
 		end
 		local old = entries[key]
 		if old and old.model == model and old.anchor == anchor and old.gui.Parent == anchor then
+			updateHeight(old)
 			return old.gui
 		end
 		remove(key)
@@ -1575,10 +1576,13 @@ local function createV8BodyDisplay(api)
             local realRoot = snapshot.character:FindFirstChild("HumanoidRootPart")
             local humanoid = snapshot.humanoid
             if not realRoot or humanoid.Parent ~= snapshot.character then return end
-            -- A stable floor reference keeps the visual rig from jumping when
-            -- the game changes HipHeight during an action or animation.
-            local driverDistance = body.driverDistance
-                or (humanoid.HipHeight + realRoot.Size.Y / 2)
+            -- Track changes to the game's real rig height. A cached value can
+            -- leave the visual feet floating when HipHeight changes.
+            local driverDistance = humanoid.HipHeight + realRoot.Size.Y / 2
+            if humanoid.RigType == api.Enum.HumanoidRigType.R6 then
+                local leg = snapshot.character:FindFirstChild("Left Leg")
+                driverDistance = driverDistance + (leg and leg.Size.Y or 2)
+            end
             root.CFrame = realRoot.CFrame * api.CFrame.new(0, body.floorDistance - driverDistance, 0)
             local cloneMotion = not restPose and api.getCloneMotion and api.getCloneMotion()
             -- The selected pack animates the physical R15 rig even when the
@@ -1652,13 +1656,6 @@ local function createV8BodyDisplay(api)
         end
         body.floorDistance = -(lowestFoot or lowestBody)
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
-        local realRoot = snapshot.character:FindFirstChild("HumanoidRootPart")
-        if not realRoot then error("Thiếu HumanoidRootPart của nhân vật") end
-        body.driverDistance = snapshot.humanoid.HipHeight + realRoot.Size.Y / 2
-        if snapshot.humanoid.RigType == api.Enum.HumanoidRigType.R6 then
-            local leg = snapshot.character:FindFirstChild("Left Leg")
-            body.driverDistance = body.driverDistance + (leg and leg.Size.Y or 2)
-        end
         sync()
         local camera = api.Workspace.CurrentCamera
         if not camera then error("Camera chưa sẵn sàng") end
@@ -4077,6 +4074,10 @@ local scaleFields = {
     "HeightScale", "WidthScale", "DepthScale", "HeadScale",
     "BodyTypeScale", "ProportionScale",
 }
+local animationFields = {
+    "IdleAnimation", "WalkAnimation", "RunAnimation", "JumpAnimation",
+    "FallAnimation", "ClimbAnimation", "SwimAnimation", "MoodAnimation",
+}
 
 local function isCosmetic(item)
     return item:IsA("Accoutrement") or item:IsA("Shirt") or item:IsA("Pants")
@@ -4098,6 +4099,17 @@ restoreAppearance = function(snapshot)
     if not snapshot then return end
     partialLegDisplay:Restore(snapshot)
     bodyDisplay:Restore(snapshot)
+    if snapshot.originalDescription then
+        local original = snapshot.originalDescription
+        snapshot.originalDescription = nil
+        if snapshot.humanoid.Parent == snapshot.character then
+            local ok, problem = pcall(function()
+                snapshot.humanoid:ApplyDescriptionResetAsync(original)
+            end)
+            if not ok then warn("[Gift Player V8] Restore description: " .. tostring(problem)) end
+        end
+        original:Destroy()
+    end
     for _, item in ipairs(snapshot.added) do
         item:Destroy()
     end
@@ -4194,6 +4206,31 @@ end
 local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetData)
     local character = snapshot.character
     local humanoid = snapshot.humanoid
+    if targetData.usePhysicalDescription then
+        -- Same-rig R15 outfits belong on the existing moving Humanoid. This
+        -- keeps the target's body proportions and clothing without a second
+        -- full-size body chasing the player's root every render frame.
+        local sourceHumanoid = sourceModel:FindFirstChildOfClass("Humanoid")
+        if not sourceHumanoid then error("Avatar nguồn thiếu Humanoid") end
+        local target = sourceHumanoid:GetAppliedDescription()
+        local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
+        if not okOriginal or not original then
+            target:Destroy()
+            error("Không lưu được ngoại hình cũ: " .. tostring(original))
+        end
+        snapshot.originalDescription = original
+        local ok, problem = pcall(function()
+            target.UseAvatarSettings = false
+            for _, field in ipairs(animationFields) do
+                target[field] = snapshot.originalDescription[field]
+            end
+            humanoid:ApplyDescriptionResetAsync(target)
+        end)
+        target:Destroy()
+        if not ok then error(problem) end
+        humanoid.DisplayName = username
+        return
+    end
     local head = character:FindFirstChild("Head")
     local sourceHead = faceHead or sourceModel:FindFirstChild("Head")
     for _, item in ipairs(character:GetChildren()) do
@@ -4345,14 +4382,15 @@ local function applyAvatar(rawUsername)
         targetData.sourceRig = hasAccountRig and accountRig or humanoid.RigType.Name
         targetData.forceFullRig = hasAccountRig
             and accountRig ~= humanoid.RigType.Name and not nativeBody
-        -- A generated full-body display is needed for body packages or a
-        -- different rig. For ordinary clothing, keep the game's own moving
-        -- character: the extra Humanoid display can jitter or float.
+        -- Same-rig R15 clothing can be applied to the actual local Humanoid,
+        -- preserving the target's dimensions while game movement stays native.
+        targetData.usePhysicalDescription = not nativeBody and not targetData.forceFullRig
+            and targetData.sourceRig == "R15" and humanoid.RigType == Enum.HumanoidRigType.R15
         targetData.useBody = nativeBody or targetData.forceFullRig
         local modelRig = targetData.sourceRig == "R15" and Enum.HumanoidRigType.R15
             or Enum.HumanoidRigType.R6
         pcall(function() description.UseAvatarSettings = false end)
-        if not targetData.useBody then
+        if not targetData.useBody and not targetData.usePhysicalDescription then
             local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
             if okOriginal and original then
                 local okScale, scaleError = pcall(function()
@@ -4430,6 +4468,10 @@ local function applyAvatar(rawUsername)
         settings.username=username; settings.avatar=username; persistSettings()
         if snapshot.bodyDisplay then
             setStatus("@" .. username .. " / hiển thị " .. snapshot.bodyDisplay.rig .. " / game " .. humanoid.RigType.Name)
+            return
+        end
+        if snapshot.originalDescription then
+            setStatus("@" .. username .. " / body R15 trên nhân vật thật / local")
             return
         end
         local gameRig = humanoid.RigType.Name
