@@ -2017,6 +2017,7 @@ local function createRoomBodyDisplay(api)
             end
         end
         body.floorDistance = -(lowestFoot or lowestBody)
+        if description.smallDoraemon then body.floorDistance -= 0.24 end
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
         sync()
         local camera = api.Workspace.CurrentCamera
@@ -4328,6 +4329,7 @@ local function applyAvatar(rawUsername)
         local okModel,model,targetData,faceModel
         if okRoom and roomModel then
             okModel,model,targetData = true,roomModel,roomData
+            targetData.smallDoraemon = username:lower() == "minztung93vn"
         else
         local okDesc, description = pcall(function()
             return Players:GetHumanoidDescriptionFromUserIdAsync(userId)
