@@ -4037,11 +4037,6 @@ local extras = createV8Additions({
         end
     end,
 })
-local scaleFields = {
-    "HeightScale", "WidthScale", "DepthScale", "HeadScale",
-    "BodyTypeScale", "ProportionScale",
-}
-
 local function isCosmetic(item)
     return item:IsA("Accoutrement") or item:IsA("Shirt") or item:IsA("Pants")
         or item:IsA("ShirtGraphic") or item:IsA("BodyColors")
@@ -4309,20 +4304,13 @@ local function applyAvatar(rawUsername)
         targetData.sourceRig = hasAccountRig and accountRig or humanoid.RigType.Name
         targetData.forceFullRig = hasAccountRig
             and accountRig ~= humanoid.RigType.Name and not nativeBody
-        targetData.useBody = nativeBody or targetData.forceFullRig
+        -- Keep the complete generated avatar, including its own R15 scales,
+        -- body parts and clothing. Copying cosmetics onto the game rig leaves
+        -- its original legs and proportions visible for many usernames.
+        targetData.useBody = true
         local modelRig = targetData.sourceRig == "R15" and Enum.HumanoidRigType.R15
             or Enum.HumanoidRigType.R6
         pcall(function() description.UseAvatarSettings = false end)
-        local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
-        if okOriginal and original then
-            local okScale, scaleError = pcall(function()
-                if not targetData.useBody then
-                    for _, field in ipairs(scaleFields) do description[field] = original[field] end
-                end
-            end)
-            if not okScale then warn("[Gift Player V8] Scale: " .. tostring(scaleError)) end
-            original:Destroy()
-        end
         okModel, model = pcall(function()
             return Players:CreateHumanoidModelFromDescriptionAsync(description, modelRig)
         end)
