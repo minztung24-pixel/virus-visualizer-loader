@@ -83,13 +83,13 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function getAnchor(model)
-		local root = model:FindFirstChild("HumanoidRootPart", true)
-		if root and root:IsA("BasePart") then
-			return root, false
-		end
 		local head = model:FindFirstChild("Head", true)
 		if head and head:IsA("BasePart") then
 			return head, true
+		end
+		local root = model:FindFirstChild("HumanoidRootPart", true)
+		if root and root:IsA("BasePart") then
+			return root, false
 		end
 		return nil, false
 	end
@@ -127,10 +127,11 @@ local function createDeveloperNameplate(api)
 		local anchor = entry.anchor
 		local lift = anchor.Size.Y * 0.5 + 0.85 + height
 		if not entry.isHead then
-			local head = entry.model:FindFirstChild("Head", true)
-			if head and head:IsA("BasePart") then
-				lift = math.max(lift, head.Position.Y + head.Size.Y * 0.5
-					- anchor.Position.Y + 0.85 + height)
+			local ok, boundsCFrame, boundsSize = pcall(function()
+				return entry.model:GetBoundingBox()
+			end)
+			if ok then
+				lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5 - anchor.Position.Y + 0.3 + height)
 			end
 		end
 		entry.gui.StudsOffsetWorldSpace = Vector3.new(0, lift, 0)
@@ -149,7 +150,6 @@ local function createDeveloperNameplate(api)
 		end
 		local old = entries[key]
 		if old and old.model == model and old.anchor == anchor and old.gui.Parent == anchor then
-			updateHeight(old)
 			return old.gui
 		end
 		remove(key)
@@ -1422,7 +1422,6 @@ local function createV8BodyDisplay(api)
         local body = snapshot and snapshot.bodyDisplay
         if not body then return end
         snapshot.bodyDisplay = nil
-        if body.renderName then api.RunService:UnbindFromRenderStep(body.renderName) end
         for _, connection in ipairs(body.connections) do connection:Disconnect() end
         if body.cloneDriver then body.cloneDriver:Destroy() end
         if body.r6Driver then body.r6Driver:Destroy() end
@@ -1467,11 +1466,6 @@ local function createV8BodyDisplay(api)
         if not lowest then error("Bộ thân không có hình học hiển thị") end
         body.floorDistance = -lowest
         body.rig = rig
-        local nativeFloorDistance = renderer.HipHeight + root.Size.Y / 2
-        if rig == "R6" then
-            local leg = model:FindFirstChild("Left Leg")
-            nativeFloorDistance = nativeFloorDistance + (leg and leg.Size.Y or 2)
-        end
         for _, item in ipairs(model:GetDescendants()) do
             if item:IsA("AnimationConstraint") then
                 local a, b = item.Part0, item.Part1
@@ -1486,36 +1480,7 @@ local function createV8BodyDisplay(api)
                 item:Destroy()
             end
         end
-        -- Classic and layered clothing need the generated Humanoid for their
-        -- appearance. It has no state machine, physics or collision role.
-        local needsClothingRenderer = false
-        for _, item in ipairs(model:GetDescendants()) do
-            if item:IsA("Shirt") or item:IsA("Pants")
-                or item:IsA("ShirtGraphic") or item:IsA("WrapLayer") then
-                needsClothingRenderer = true
-                break
-            end
-        end
-        if needsClothingRenderer then
-            renderer.EvaluateStateMachine = false
-            renderer.AutomaticScalingEnabled = false
-            renderer.AutoRotate = false
-            renderer.RequiresNeck = false
-            renderer.BreakJointsOnDeath = false
-            renderer.DisplayDistanceType = api.Enum.HumanoidDisplayDistanceType.None
-            renderer.DisplayName = ""
-            renderer.WalkSpeed = 0
-            renderer.JumpPower = 0
-            renderer.JumpHeight = 0
-            -- Generated models can carry an Animator that keeps writing the
-            -- same joints which sync() positions each frame. Clothing only
-            -- needs the Humanoid; clone locomotion creates its own Animator.
-            local oldAnimator = renderer:FindFirstChildOfClass("Animator")
-            if oldAnimator then oldAnimator:Destroy() end
-            body.renderer = renderer
-        else
-            renderer:Destroy()
-        end
+        renderer:Destroy()
         for _, item in ipairs(model:GetDescendants()) do
             if item:IsA("Tool") or item:IsA("BaseScript") or item:IsA("ModuleScript")
                 or item:IsA("BodyMover") or item:IsA("Constraint") then
@@ -1582,8 +1547,6 @@ local function createV8BodyDisplay(api)
             local realRoot = snapshot.character:FindFirstChild("HumanoidRootPart")
             local humanoid = snapshot.humanoid
             if not realRoot or humanoid.Parent ~= snapshot.character then return end
-            -- Track changes to the game's real rig height. A cached value can
-            -- leave the visual feet floating when HipHeight changes.
             local driverDistance = humanoid.HipHeight + realRoot.Size.Y / 2
             if humanoid.RigType == api.Enum.HumanoidRigType.R6 then
                 local leg = snapshot.character:FindFirstChild("Left Leg")
@@ -1660,17 +1623,7 @@ local function createV8BodyDisplay(api)
                 end
             end
         end
-        -- The generated Humanoid knows its rig's intended root-to-floor
-        -- distance. MeshPart boxes can extend below the visible feet, which
-        -- made full-body outfits hover when aligned by part bounds alone.
-        -- The tiny Doraemon body uses its posed feet and a small mesh inset.
-        if description.smallDoraemon or nativeFloorDistance <= 0
-            or nativeFloorDistance > 12 then
-            body.floorDistance = -(lowestFoot or lowestBody)
-            if description.smallDoraemon then body.floorDistance -= 0.24 end
-        else
-            body.floorDistance = nativeFloorDistance
-        end
+        body.floorDistance = -(lowestFoot or lowestBody)
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
         sync()
         local camera = api.Workspace.CurrentCamera
@@ -1687,9 +1640,7 @@ local function createV8BodyDisplay(api)
                 return snapshot.bodyDisplay == body
             end)
         end
-        body.renderName = "GiftPlayerV8VisualBody"
-        api.RunService:BindToRenderStep(body.renderName,
-            api.Enum.RenderPriority.Character.Value + 2, function()
+        body.connections[#body.connections+1] = api.RunService.RenderStepped:Connect(function()
             local ok, problem = pcall(function()
                 local currentCamera = api.Workspace.CurrentCamera
                 if currentCamera and model.Parent ~= currentCamera then model.Parent = currentCamera end
@@ -2017,7 +1968,6 @@ local function createRoomBodyDisplay(api)
             end
         end
         body.floorDistance = -(lowestFoot or lowestBody)
-        if description.smallDoraemon then body.floorDistance -= 0.24 end
         model:SetAttribute("VisualFloorDistance", body.floorDistance)
         sync()
         local camera = api.Workspace.CurrentCamera
@@ -4087,6 +4037,11 @@ local extras = createV8Additions({
         end
     end,
 })
+local scaleFields = {
+    "HeightScale", "WidthScale", "DepthScale", "HeadScale",
+    "BodyTypeScale", "ProportionScale",
+}
+
 local function isCosmetic(item)
     return item:IsA("Accoutrement") or item:IsA("Shirt") or item:IsA("Pants")
         or item:IsA("ShirtGraphic") or item:IsA("BodyColors")
@@ -4329,7 +4284,6 @@ local function applyAvatar(rawUsername)
         local okModel,model,targetData,faceModel
         if okRoom and roomModel then
             okModel,model,targetData = true,roomModel,roomData
-            targetData.smallDoraemon = username:lower() == "minztung93vn"
         else
         local okDesc, description = pcall(function()
             return Players:GetHumanoidDescriptionFromUserIdAsync(userId)
@@ -4355,18 +4309,20 @@ local function applyAvatar(rawUsername)
         targetData.sourceRig = hasAccountRig and accountRig or humanoid.RigType.Name
         targetData.forceFullRig = hasAccountRig
             and accountRig ~= humanoid.RigType.Name and not nativeBody
-        -- Keep the target's complete generated body and scale. Applying a
-        -- HumanoidDescription to the game's player Humanoid requires the
-        -- backend server; this local visual body leaves its physics alone.
-        targetData.useBody = true
-        targetData.smallDoraemon = username:lower() == "minztung93vn"
-            or tonumber(description.Head) == 89301538803025
-            or tonumber(description.Torso) == 93022753372861
-            or tonumber(description.LeftLeg) == 126400440981020
-            or tonumber(description.RightLeg) == 136796899725275
+        targetData.useBody = nativeBody or targetData.forceFullRig
         local modelRig = targetData.sourceRig == "R15" and Enum.HumanoidRigType.R15
             or Enum.HumanoidRigType.R6
         pcall(function() description.UseAvatarSettings = false end)
+        local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
+        if okOriginal and original then
+            local okScale, scaleError = pcall(function()
+                if not targetData.useBody then
+                    for _, field in ipairs(scaleFields) do description[field] = original[field] end
+                end
+            end)
+            if not okScale then warn("[Gift Player V8] Scale: " .. tostring(scaleError)) end
+            original:Destroy()
+        end
         okModel, model = pcall(function()
             return Players:CreateHumanoidModelFromDescriptionAsync(description, modelRig)
         end)
@@ -5142,7 +5098,6 @@ local function cleanup()
 		return
 	end
 	closed = true
-	RunService:UnbindFromRenderStep(instanceKey .. "Render")
 	clearWorld()
 	for _, connection in ipairs(connections) do
 		connection:Disconnect()
@@ -5244,11 +5199,6 @@ local function prepareCopy(copy)
 	local humanoid = copy:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-		humanoid.EvaluateStateMachine = false
-		humanoid.AutomaticScalingEnabled = false
-		humanoid.AutoRotate = false
-		local animator = humanoid:FindFirstChildOfClass("Animator")
-		if animator then animator:Destroy() end
 	end
 end
 
@@ -5784,8 +5734,7 @@ end
 
 local lastSourceCheck = 0
 local lastPoseWarning = 0
-RunService:BindToRenderStep(instanceKey .. "Render",
-	Enum.RenderPriority.Character.Value + 3, function(dt)
+connect(RunService.RenderStepped, function(dt)
 	if closed then return end
 	updateCloneMovement(dt)
 	if not poseMirror or closed then return end
