@@ -1480,7 +1480,30 @@ local function createV8BodyDisplay(api)
                 item:Destroy()
             end
         end
-        renderer:Destroy()
+        -- Classic clothing only renders while a Humanoid is a sibling of
+        -- Shirt/Pants. Layered clothing also needs its rig for wrapping.
+        -- Keep the renderer passive for those avatars; plain body packages
+        -- retain the previous renderer-free path and its established poses.
+        local needsClothingRenderer = false
+        for _, item in ipairs(model:GetDescendants()) do
+            if item:IsA("Shirt") or item:IsA("Pants")
+                or item:IsA("ShirtGraphic") or item:IsA("WrapLayer") then
+                needsClothingRenderer = true
+                break
+            end
+        end
+        if needsClothingRenderer then
+            renderer.EvaluateStateMachine = false
+            renderer.AutomaticScalingEnabled = false
+            renderer.AutoRotate = false
+            renderer.RequiresNeck = false
+            renderer.BreakJointsOnDeath = false
+            renderer.DisplayDistanceType = api.Enum.HumanoidDisplayDistanceType.None
+            renderer.DisplayName = ""
+            body.renderer = renderer
+        else
+            renderer:Destroy()
+        end
         for _, item in ipairs(model:GetDescendants()) do
             if item:IsA("Tool") or item:IsA("BaseScript") or item:IsA("ModuleScript")
                 or item:IsA("BodyMover") or item:IsA("Constraint") then
