@@ -24,10 +24,282 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
+-- Call from a LocalScript for a local visual only. The blue check is drawn
+-- with UI objects; it does not represent or change account verification.
+-- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
+-- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
+-- RunService is not needed.
+
+local function createDeveloperNameplate(api)
+	assert(type(api) == "table", "createDeveloperNameplate requires an api table")
+	for _, field in ipairs({ "Instance", "UDim2", "Color3", "Enum", "TweenService" }) do
+		assert(api[field] ~= nil, "createDeveloperNameplate requires api." .. field)
+	end
+
+	local Instance = api.Instance
+	local UDim = api.UDim or UDim
+	local UDim2 = api.UDim2
+	local Color3 = api.Color3
+	local Enum = api.Enum
+	local TweenInfo = api.TweenInfo or TweenInfo
+	local Vector2 = api.Vector2 or Vector2
+	local Vector3 = api.Vector3 or Vector3
+	local ColorSequence = api.ColorSequence or ColorSequence
+	local ColorSequenceKeypoint = api.ColorSequenceKeypoint or ColorSequenceKeypoint
+	local TweenService = api.TweenService
+
+	local palette = {
+		blue = { text = Color3.fromRGB(0, 162, 255), accent = Color3.fromRGB(58, 158, 255), surface = Color3.fromRGB(12, 31, 59) },
+		sky = { text = Color3.fromRGB(132, 215, 255), accent = Color3.fromRGB(132, 215, 255), surface = Color3.fromRGB(17, 40, 60) },
+		red = { text = Color3.fromRGB(255, 104, 119), accent = Color3.fromRGB(255, 99, 112), surface = Color3.fromRGB(57, 19, 32) },
+		yellow = { text = Color3.fromRGB(255, 213, 77), accent = Color3.fromRGB(255, 209, 74), surface = Color3.fromRGB(54, 41, 18) },
+	}
+	local checkBlue = Color3.fromRGB(59, 91, 250)
+	local entries = {}
+	local enabled = true
+	local colorKey = "blue"
+	local shineDirection = "right"
+	local height = 0.75
+	local size = 1
+	local destroyed = false
+	local feature = {}
+	local function textGradient(key)
+		local base = palette[key].text
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0, base),
+			ColorSequenceKeypoint.new(0.37, base),
+			ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(0.63, base),
+			ColorSequenceKeypoint.new(1, base),
+		})
+	end
+	local function playShine(entry)
+		if entry.shineTween then entry.shineTween:Cancel() end
+		local start = shineDirection == "right" and -1.3 or 1.3
+		entry.gradient.Offset = Vector2.new(start, 0)
+		entry.shineTween = TweenService:Create(entry.gradient,
+			TweenInfo.new(2.7, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, 1.2),
+			{ Offset = Vector2.new(-start, 0) })
+		entry.shineTween:Play()
+	end
+
+	local function getAnchor(model)
+		local head = model:FindFirstChild("Head", true)
+		if head and head:IsA("BasePart") then
+			return head, true
+		end
+		local root = model:FindFirstChild("HumanoidRootPart", true)
+		if root and root:IsA("BasePart") then
+			return root, false
+		end
+		return nil, false
+	end
+
+	local function remove(key)
+		local entry = entries[key]
+		if not entry then
+			return
+		end
+		entries[key] = nil
+		if entry.destroying then
+			entry.destroying:Disconnect()
+		end
+		if entry.shineTween then entry.shineTween:Cancel() end
+		entry.gui:Destroy()
+	end
+
+	local function makeCheck(parent)
+		local badge = Instance.new("Frame")
+		badge.Name = "DecorativeBlueCheck"
+		badge.BackgroundColor3 = checkBlue
+		badge.BorderSizePixel = 0
+		badge.Position = UDim2.fromScale(0.81, 0.19)
+		badge.Size = UDim2.fromScale(0.115, 0.62)
+		badge.Rotation = 15
+		badge.Parent = parent
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.08, 0)
+		corner.Parent = badge
+
+		local outline = Instance.new("UIStroke")
+		outline.Color = Color3.fromRGB(31, 52, 165)
+		outline.Thickness = 1
+		outline.Transparency = 0.35
+		outline.Parent = badge
+
+		local tick = Instance.new("TextLabel")
+		tick.Name = "WhiteCheck"
+		tick.BackgroundTransparency = 1
+		tick.Size = UDim2.fromScale(1, 1)
+		tick.Text = "✓"
+		tick.Font = Enum.Font.GothamBlack
+		tick.TextColor3 = Color3.fromRGB(255, 255, 255)
+		tick.TextScaled = true
+		tick.TextStrokeTransparency = 1
+		tick.Rotation = -15
+		tick.Parent = badge
+	end
+
+	local function updateHeight(entry)
+		local anchor = entry.anchor
+		local lift = anchor.Size.Y * 0.5 + 0.85 + height
+		if not entry.isHead then
+			local ok, boundsCFrame, boundsSize = pcall(function()
+				return entry.model:GetBoundingBox()
+			end)
+			if ok then
+				lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5 - anchor.Position.Y + 0.3 + height)
+			end
+		end
+		entry.gui.StudsOffsetWorldSpace = Vector3.new(0, lift, 0)
+	end
+
+	function feature:Attach(model, key)
+		if destroyed then
+			return nil
+		end
+		assert(key ~= nil, "Attach requires a key")
+		assert(model and model:IsA("Model"), "Attach requires a Model")
+
+		local anchor, isHead = getAnchor(model)
+		if not anchor then
+			return nil
+		end
+		local old = entries[key]
+		if old and old.model == model and old.anchor == anchor and old.gui.Parent == anchor then
+			return old.gui
+		end
+		remove(key)
+
+		local gui = Instance.new("BillboardGui")
+		gui.Name = "LocalDeveloperNameplate"
+		gui.Adornee = anchor
+		gui.AlwaysOnTop = true
+		gui.LightInfluence = 0
+		gui.MaxDistance = 90
+		gui.Size = UDim2.fromScale(3.2 * size, 0.64 * size)
+		gui.Enabled = enabled
+
+		local plate = Instance.new("Frame")
+		plate.Name = "Plate"
+		plate.BackgroundColor3 = palette[colorKey].surface
+		plate.BackgroundTransparency = 1
+		plate.BorderSizePixel = 0
+		plate.ClipsDescendants = false
+		plate.Size = UDim2.fromScale(1, 1)
+		plate.Parent = gui
+
+		local stroke = Instance.new("UIStroke")
+		stroke.Name = "AccentStroke"
+		stroke.Color = palette[colorKey].accent
+		stroke.Thickness = 1.5
+		stroke.Transparency = 1
+		stroke.Parent = plate
+
+		local label = Instance.new("TextLabel")
+		label.Name = "DeveloperText"
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.GothamBlack
+		label.Text = "Developer"
+		label.TextColor3 = palette[colorKey].text
+		label.TextStrokeColor3 = Color3.fromRGB(5, 12, 27)
+		label.TextStrokeTransparency = 0.2
+		label.TextScaled = true
+		label.TextXAlignment = Enum.TextXAlignment.Center
+		label.Position = UDim2.fromScale(0.05, 0)
+		label.Size = UDim2.fromScale(0.72, 1)
+		label.Parent = plate
+		local gradient = Instance.new("UIGradient")
+		gradient.Name = "TextShine"
+		gradient.Color = textGradient(colorKey)
+		gradient.Rotation = 16
+		gradient.Parent = label
+
+		makeCheck(plate)
+		gui.Parent = anchor
+
+		local entry = { model = model, anchor = anchor, isHead = isHead, gui = gui, stroke = stroke,
+			plate = plate, label = label, gradient = gradient }
+		entries[key] = entry
+		updateHeight(entry)
+		entry.destroying = model.Destroying:Connect(function()
+			remove(key)
+		end)
+		playShine(entry)
+		return gui
+	end
+
+	function feature:Detach(key)
+		remove(key)
+	end
+
+	function feature:SetEnabled(value)
+		assert(type(value) == "boolean", "SetEnabled requires a boolean")
+		if destroyed then
+			return
+		end
+		enabled = value
+		for _, entry in pairs(entries) do
+			entry.gui.Enabled = value
+		end
+	end
+
+	function feature:SetColor(newColorKey)
+		assert(palette[newColorKey] ~= nil, "SetColor accepts only blue, sky, red, or yellow")
+		if destroyed then
+			return
+		end
+		colorKey = newColorKey
+		for _, entry in pairs(entries) do
+			entry.plate.BackgroundColor3 = palette[colorKey].surface
+			entry.stroke.Color = palette[colorKey].accent
+			entry.label.TextColor3 = palette[colorKey].text
+			entry.gradient.Color = textGradient(colorKey)
+		end
+	end
+
+	function feature:SetShineDirection(direction)
+		assert(direction == "right" or direction == "left", "Shine direction must be right or left")
+		if destroyed or shineDirection == direction then return end
+		shineDirection = direction
+		for _, entry in pairs(entries) do playShine(entry) end
+	end
+
+	function feature:SetHeight(value)
+		assert(type(value) == "number", "SetHeight requires a number")
+		if destroyed then return end
+		height = math.clamp(value, 0, 3)
+		for _, entry in pairs(entries) do updateHeight(entry) end
+	end
+
+	function feature:SetSize(value)
+		assert(type(value) == "number", "SetSize requires a number")
+		if destroyed then return end
+		size = math.clamp(value, 0.7, 1.6)
+		for _, entry in pairs(entries) do
+			entry.gui.Size = UDim2.fromScale(3.2 * size, 0.64 * size)
+		end
+	end
+
+	function feature:Destroy()
+		if destroyed then
+			return
+		end
+		destroyed = true
+		for key in pairs(entries) do
+			remove(key)
+		end
+	end
+
+	return feature
+end
+
 local function createVisualizerSettings(api)
     local file="THT_Item_Visualizer_"..tostring(api.placeId)..".json"
     local data={version=1,hideRoom=true,username="",avatar="",weapon="",
-        pack="",moon=false,page="avatar",collapsed=false}
+        pack="",moon=false,developer=false,developerColor="blue",
+        developerShineDirection="right",developerHeight=0.75,developerSize=1,
+        page="avatar",collapsed=false}
     local disk=type(api.readfile)=="function" and type(api.writefile)=="function"
     local raw
     if disk then
@@ -47,6 +319,15 @@ local function createVisualizerSettings(api)
                 and value.weapon:match("^[%w_]*$") then data.weapon=value.weapon end
             if value.pack=="community" or value.pack=="aura" then data.pack=value.pack end
             if type(value.moon)=="boolean" then data.moon=value.moon end
+            if type(value.developer)=="boolean" then data.developer=value.developer end
+            if value.developerColor=="blue" or value.developerColor=="sky" or value.developerColor=="red"
+                or value.developerColor=="yellow" then data.developerColor=value.developerColor end
+            if value.developerShineDirection=="right" or value.developerShineDirection=="left" then
+                data.developerShineDirection=value.developerShineDirection end
+            if type(value.developerHeight)=="number" and value.developerHeight==value.developerHeight then
+                data.developerHeight=math.clamp(value.developerHeight,0,3) end
+            if type(value.developerSize)=="number" and value.developerSize==value.developerSize then
+                data.developerSize=math.clamp(value.developerSize,0.7,1.6) end
             if value.page=="avatar" or value.page=="weapons" or value.page=="effects" or value.page=="clone" then data.page=value.page end
             if type(value.collapsed)=="boolean" then data.collapsed=value.collapsed end
         end
@@ -170,9 +451,15 @@ for index,entry in ipairs({{"avatar","AVATAR"},{"weapons","VŨ KHÍ"},{"effects"
     local id=entry[1]
     local tab=makeButton(body,entry[2],10+(index-1)*84,8,80,31,theme.card)
     tab.Name="Tab_"..id; tab.TextSize=10; tabs[id]=tab
-    local page=Instance.new("Frame"); page.Name="Page_"..id
+    local page=Instance.new(id=="effects" and "ScrollingFrame" or "Frame"); page.Name="Page_"..id
     page.BackgroundTransparency=1; page.Position=UDim2.fromOffset(10,52)
     page.Size=UDim2.fromOffset(340,394); page.ZIndex=22; page.Parent=body; pages[id]=page
+    if id=="effects" then
+        page.BorderSizePixel=0; page.ScrollBarThickness=4
+        page.ScrollBarImageColor3=Color3.fromRGB(124,103,199)
+        page.CanvasSize=UDim2.fromOffset(0,785)
+        page.ScrollingDirection=Enum.ScrollingDirection.Y
+    end
     on(tab.MouseButton1Click,function()
         usernameBox:ReleaseFocus(false)
         showMenuPage(id)
@@ -226,6 +513,37 @@ local moonCard=surface(effectsPage,266,86)
 makeText(moonCard,"MOONBLOOM TRAIL",12,9,310,21,12,theme.text)
 local moonButton=makeButton(moonCard,"Moonbloom Trail: TẮT",12,43,316,31,Color3.fromRGB(69,58,94))
 makeText(effectsPage,"Bấm lại gói đang chọn để tắt.",0,365,340,20,11,theme.muted)
+section(effectsPage,"DANH HIỆU NHÂN VẬT",396)
+local developerCard=surface(effectsPage,423,338)
+makeText(developerCard,"Developer  •  tích xanh",12,9,316,21,12,theme.text)
+local developerToggle=makeButton(developerCard,"Developer: TẮT",12,37,316,32,Color3.fromRGB(69,58,94))
+local developerColors={}
+for index,entry in ipairs({{"blue","XANH ĐẬM",Color3.fromRGB(0,140,235)},
+    {"sky","XANH TRỜI",Color3.fromRGB(79,190,255)},
+    {"red","ĐỎ",Color3.fromRGB(231,72,83)},
+    {"yellow","VÀNG",Color3.fromRGB(239,181,54)}}) do
+    local button=makeButton(developerCard,entry[2],12+(index-1)*79,79,73,31,entry[3])
+    button.TextSize=9
+    if entry[1]=="sky" or entry[1]=="yellow" then
+        button.TextColor3=Color3.fromRGB(24,30,42)
+    end
+    developerColors[entry[1]]=button
+end
+makeText(developerCard,"HƯỚNG VỆT SÁNG",12,121,316,18,10,theme.muted)
+local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,145,152,31,theme.card)
+local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,145,152,31,theme.card)
+shineRightButton.TextSize=11; shineLeftButton.TextSize=11
+makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,188,316,18,10,theme.muted)
+local heightDownButton=makeButton(developerCard,"−",12,211,69,32,theme.card)
+local heightValue=makeText(developerCard,"",91,213,155,27,13,theme.text)
+heightValue.TextXAlignment=Enum.TextXAlignment.Center
+local heightUpButton=makeButton(developerCard,"+",258,211,70,32,theme.card)
+makeText(developerCard,"CỠ CHỮ",12,250,316,18,10,theme.muted)
+local sizeDownButton=makeButton(developerCard,"−",12,273,69,32,theme.card)
+local sizeValue=makeText(developerCard,"",91,275,155,27,13,theme.text)
+sizeValue.TextXAlignment=Enum.TextXAlignment.Center
+local sizeUpButton=makeButton(developerCard,"+",258,273,70,32,theme.card)
+makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,315,316,18,10,theme.muted)
 local woodButton=makeButton(weaponPage,"Gậy gỗ / hình gốc",0,364,340,30,theme.card)
 local statusBar=Instance.new("Frame"); statusBar.Name="StatusBar"
 statusBar.BackgroundColor3=Color3.fromRGB(27,29,40); statusBar.BorderSizePixel=0
@@ -245,6 +563,121 @@ local function setStatus(message)
     state.statusSerial = state.statusSerial + 1
     status.Text = message
 end
+
+local developerNameplate=createDeveloperNameplate({
+    Instance=Instance, UDim2=UDim2, Color3=Color3, Enum=Enum,
+    TweenService=game:GetService("TweenService"), RunService=RunService,
+})
+developerNameplate:SetColor(settings.developerColor)
+developerNameplate:SetShineDirection(settings.developerShineDirection)
+developerNameplate:SetHeight(settings.developerHeight)
+developerNameplate:SetSize(settings.developerSize)
+developerNameplate:SetEnabled(settings.developer)
+local hiddenNameHumanoids={}
+local function restoreDefaultNames()
+    for humanoid,displayType in pairs(hiddenNameHumanoids) do
+        if humanoid.Parent then humanoid.DisplayDistanceType=displayType end
+        hiddenNameHumanoids[humanoid]=nil
+    end
+end
+local function hideDefaultName(model)
+    local humanoid=model and model:FindFirstChildOfClass("Humanoid")
+    if humanoid and hiddenNameHumanoids[humanoid]==nil then
+        hiddenNameHumanoids[humanoid]=humanoid.DisplayDistanceType
+        humanoid.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+    end
+end
+local function refreshDeveloperReal()
+    local camera=game:GetService("Workspace").CurrentCamera
+    local display=camera and camera:FindFirstChild("GiftPlayerV8BodyDisplay")
+    local model=display and display:IsA("Model") and display:FindFirstChild("Head")
+        and display or localPlayer.Character
+    if model then developerNameplate:Attach(model,"real")
+    else developerNameplate:Detach("real") end
+    restoreDefaultNames()
+    if settings.developer then
+        hideDefaultName(localPlayer.Character)
+        hideDefaultName(model)
+    end
+end
+state.SetDeveloperCloneModel=function(model)
+    if model then developerNameplate:Attach(model,"clone")
+    else developerNameplate:Detach("clone") end
+end
+local developerColorStrokes={}
+local developerColorLabels={blue="XANH ĐẬM",sky="XANH TRỜI",red="ĐỎ",yellow="VÀNG"}
+for key,button in pairs(developerColors) do
+    local stroke=Instance.new("UIStroke")
+    stroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+    stroke.Color=Color3.fromRGB(255,255,255)
+    stroke.Parent=button
+    developerColorStrokes[key]=stroke
+end
+local function paintDeveloperControls()
+    developerToggle.Text=settings.developer and "Developer: BẬT" or "Developer: TẮT"
+    developerToggle.BackgroundColor3=settings.developer
+        and Color3.fromRGB(57,161,112) or Color3.fromRGB(69,58,94)
+    for key,button in pairs(developerColors) do
+        local selected=settings.developerColor==key
+        button.Text=(selected and "✓ " or "")..developerColorLabels[key]
+        local stroke=developerColorStrokes[key]
+        stroke.Thickness=selected and 2 or 1
+        stroke.Transparency=selected and 0 or .72
+    end
+    shineRightButton.BackgroundColor3=settings.developerShineDirection=="right"
+        and theme.purple or theme.card
+    shineLeftButton.BackgroundColor3=settings.developerShineDirection=="left"
+        and theme.purple or theme.card
+    heightValue.Text=string.format("+%.2f studs",settings.developerHeight)
+    heightDownButton.BackgroundColor3=settings.developerHeight<=0 and theme.card or theme.purple
+    heightUpButton.BackgroundColor3=settings.developerHeight>=3 and theme.card or theme.purple
+    sizeValue.Text=string.format("%d%%",math.floor(settings.developerSize*100+0.5))
+    sizeDownButton.BackgroundColor3=settings.developerSize<=0.7 and theme.card or theme.purple
+    sizeUpButton.BackgroundColor3=settings.developerSize>=1.6 and theme.card or theme.purple
+end
+on(developerToggle.MouseButton1Click,function()
+    settings.developer=not settings.developer
+    developerNameplate:SetEnabled(settings.developer)
+    refreshDeveloperReal()
+    paintDeveloperControls(); persistSettings()
+    setStatus(settings.developer and "Đã bật danh hiệu Developer cục bộ" or "Đã tắt danh hiệu Developer")
+end)
+for key,button in pairs(developerColors) do
+    on(button.MouseButton1Click,function()
+        settings.developerColor=key
+        developerNameplate:SetColor(key)
+        paintDeveloperControls(); persistSettings()
+        setStatus("Đã chọn màu Developer: "..developerColorLabels[key])
+    end)
+end
+on(shineRightButton.MouseButton1Click,function()
+    settings.developerShineDirection="right"
+    developerNameplate:SetShineDirection("right")
+    paintDeveloperControls(); persistSettings()
+end)
+on(shineLeftButton.MouseButton1Click,function()
+    settings.developerShineDirection="left"
+    developerNameplate:SetShineDirection("left")
+    paintDeveloperControls(); persistSettings()
+end)
+local function changeDeveloperHeight(delta)
+    settings.developerHeight=math.clamp(math.floor((settings.developerHeight+delta)*4+0.5)/4,0,3)
+    developerNameplate:SetHeight(settings.developerHeight)
+    paintDeveloperControls(); persistSettings()
+    setStatus(string.format("Độ cao Developer: +%.2f studs",settings.developerHeight))
+end
+on(heightDownButton.MouseButton1Click,function() changeDeveloperHeight(-0.25) end)
+on(heightUpButton.MouseButton1Click,function() changeDeveloperHeight(0.25) end)
+local function changeDeveloperSize(delta)
+    settings.developerSize=math.clamp(math.floor((settings.developerSize+delta)*10+0.5)/10,0.7,1.6)
+    developerNameplate:SetSize(settings.developerSize)
+    paintDeveloperControls(); persistSettings()
+    setStatus(string.format("Cỡ chữ Developer: %d%%",math.floor(settings.developerSize*100+0.5)))
+end
+on(sizeDownButton.MouseButton1Click,function() changeDeveloperSize(-0.1) end)
+on(sizeUpButton.MouseButton1Click,function() changeDeveloperSize(0.1) end)
+paintDeveloperControls()
+refreshDeveloperReal()
 
 local function paintToggle()
     hideToggle.Text = state.hideRoom and "BẬT" or "TẮT"
@@ -3797,6 +4230,7 @@ local function restoreNow()
         local ok, problem = pcall(function() restoreAppearance(snapshot) end)
         if not ok then setError("Khôi phục lỗi", problem); return end
     end
+    refreshDeveloperReal()
     settings.avatar=""; settings.weapon=""; settings.pack=""; settings.moon=false
     persistSettings()
     setStatus(snapshot and "Đã khôi phục avatar" or "Đã hủy Apply")
@@ -3962,11 +4396,13 @@ local function applyAvatar(rawUsername)
             state.originalAppearance = nil
             pcall(function() restoreAppearance(snapshot) end)
             state.avatarBusy = false
+            refreshDeveloperReal()
             setError("Apply lỗi", problem)
             return
         end
         state.avatarBusy = false
         weaponVisual:RefreshAvatarDisplay()
+        refreshDeveloperReal()
         settings.username=username; settings.avatar=username; persistSettings()
         if snapshot.bodyDisplay then
             setStatus("@" .. username .. " / hiển thị " .. snapshot.bodyDisplay.rig .. " / game " .. humanoid.RigType.Name)
@@ -3993,7 +4429,8 @@ local function applyAvatar(rawUsername)
     end)
 end
 
-on(localPlayer.CharacterAdded, function()
+on(localPlayer.CharacterAdded, function(character)
+    developerNameplate:Detach("real")
     moonbloom:Disable()
     extras:Disable()
     state.avatarToken = state.avatarToken + 1
@@ -4001,6 +4438,10 @@ on(localPlayer.CharacterAdded, function()
     state.originalAppearance = nil
     if snapshot then pcall(function() restoreAppearance(snapshot) end) end
     setStatus("Nhân vật mới / nhập tên rồi Apply")
+    task.spawn(function()
+        character:WaitForChild("Head",5)
+        if state.alive and localPlayer.Character==character then refreshDeveloperReal() end
+    end)
 end)
 
 on(hideToggle.MouseButton1Click, function()
@@ -4056,6 +4497,8 @@ function state.stop(keepGiftHidden)
     if type(state.CloseClone)=="function" then pcall(state.CloseClone); state.CloseClone=nil end
     state.CloneMotion = nil
     state.alive = false
+    restoreDefaultNames()
+    developerNameplate:Destroy()
     weaponPicker:Destroy()
     weaponVisual:Destroy()
     moonbloom:Destroy()
@@ -4647,6 +5090,9 @@ local function clearWorld()
 	generation += 1
 	awaitingClick = false
 	selectedPosition = nil
+	if type(integrationState) == "table" and type(integrationState.SetDeveloperCloneModel) == "function" then
+		integrationState.SetDeveloperCloneModel(nil)
+	end
 	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
 		integrationState.SetMoonbloomCloneRoot(nil)
 	end
@@ -4744,7 +5190,8 @@ local function prepareCopy(copy)
 				or descendant:IsA("Tool")
 				or descendant:IsA("Sound")
 				or descendant:IsA("ProximityPrompt")
-				or descendant:IsA("ClickDetector") then
+				or descendant:IsA("ClickDetector")
+				or descendant:IsA("BillboardGui") and descendant.Name == "LocalDeveloperNameplate" then
 				descendant:Destroy()
 			elseif descendant:IsA("JointInstance") or descendant:IsA("WeldConstraint") then
 				local a, b = descendant.Part0, descendant.Part1
@@ -5217,12 +5664,18 @@ local function createOrUpdateClone(autoView)
 	clearWeaponMirror()
 	clearLegMirror()
 	if poseMirror and poseMirror.cloneDriver then poseMirror.cloneDriver:Destroy() end
+	if type(integrationState) == "table" and type(integrationState.SetDeveloperCloneModel) == "function" then
+		integrationState.SetDeveloperCloneModel(nil)
+	end
 	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
 		integrationState.SetMoonbloomCloneRoot(nil)
 	end
 	if clone then clone:Destroy() end
 	clone = newCopy
 	poseMirror = newPose
+	if type(integrationState) == "table" and type(integrationState.SetDeveloperCloneModel) == "function" then
+		integrationState.SetDeveloperCloneModel(newCopy)
+	end
 	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
 		integrationState.SetMoonbloomCloneRoot(newPose.moonbloomRoot)
 	end
