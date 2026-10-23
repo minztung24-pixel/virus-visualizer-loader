@@ -24,8 +24,8 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
--- Call from a LocalScript for a local visual only. The blue check is drawn
--- with UI objects; it does not represent or change account verification.
+-- Call from a LocalScript for a local visual only. The blue check uses
+-- Roblox's built-in verified glyph; it does not change account verification.
 -- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
 -- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
 -- RunService is not needed.
@@ -54,7 +54,6 @@ local function createDeveloperNameplate(api)
 		red = { text = Color3.fromRGB(255, 104, 119), accent = Color3.fromRGB(255, 99, 112), surface = Color3.fromRGB(57, 19, 32) },
 		yellow = { text = Color3.fromRGB(255, 213, 77), accent = Color3.fromRGB(255, 209, 74), surface = Color3.fromRGB(54, 41, 18) },
 	}
-	local checkBlue = Color3.fromRGB(59, 91, 250)
 	local entries = {}
 	local enabled = true
 	local colorKey = "blue"
@@ -109,35 +108,19 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function makeCheck(parent)
-		local badge = Instance.new("Frame")
+		local badge = Instance.new("TextLabel")
 		badge.Name = "DecorativeBlueCheck"
-		badge.BackgroundColor3 = checkBlue
+		badge.BackgroundTransparency = 1
 		badge.BorderSizePixel = 0
-		badge.Position = UDim2.fromScale(0.81, 0.19)
-		badge.Size = UDim2.fromScale(0.115, 0.62)
-		badge.Rotation = 15
+		badge.Position = UDim2.fromScale(0.785, 0.06)
+		badge.Size = UDim2.fromScale(0.16, 0.88)
+		badge.Font = Enum.Font.GothamBlack
+		badge.Text = utf8.char(0xE000)
+		badge.TextScaled = true
+		badge.TextStrokeTransparency = 1
+		badge.TextXAlignment = Enum.TextXAlignment.Center
+		badge.TextYAlignment = Enum.TextYAlignment.Center
 		badge.Parent = parent
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0.08, 0)
-		corner.Parent = badge
-
-		local outline = Instance.new("UIStroke")
-		outline.Color = Color3.fromRGB(31, 52, 165)
-		outline.Thickness = 1
-		outline.Transparency = 0.35
-		outline.Parent = badge
-
-		local tick = Instance.new("TextLabel")
-		tick.Name = "WhiteCheck"
-		tick.BackgroundTransparency = 1
-		tick.Size = UDim2.fromScale(1, 1)
-		tick.Text = "✓"
-		tick.Font = Enum.Font.GothamBlack
-		tick.TextColor3 = Color3.fromRGB(255, 255, 255)
-		tick.TextScaled = true
-		tick.TextStrokeTransparency = 1
-		tick.Rotation = -15
-		tick.Parent = badge
 	end
 
 	local function updateHeight(entry)
