@@ -24,8 +24,8 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
--- Call from a LocalScript for a local visual only. The blue check uses
--- Roblox's built-in verified glyph; it does not change account verification.
+-- Call from a LocalScript for a local visual only. The blue check is drawn
+-- with frames; it does not change account verification.
 -- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
 -- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
 -- RunService is not needed.
@@ -108,19 +108,37 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function makeCheck(parent)
-		local badge = Instance.new("TextLabel")
+		local badge = Instance.new("Frame")
 		badge.Name = "DecorativeBlueCheck"
-		badge.BackgroundTransparency = 1
+		badge.BackgroundColor3 = Color3.fromRGB(39, 91, 249)
 		badge.BorderSizePixel = 0
-		badge.Position = UDim2.fromScale(0.785, 0.06)
-		badge.Size = UDim2.fromScale(0.16, 0.88)
-		badge.Font = Enum.Font.GothamBlack
-		badge.Text = utf8.char(0xE000)
-		badge.TextScaled = true
-		badge.TextStrokeTransparency = 1
-		badge.TextXAlignment = Enum.TextXAlignment.Center
-		badge.TextYAlignment = Enum.TextYAlignment.Center
+		badge.Position = UDim2.fromScale(0.81, 0.19)
+		badge.Size = UDim2.fromScale(0.115, 0.62)
+		badge.Rotation = 15
 		badge.Parent = parent
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.12, 0)
+		corner.Parent = badge
+		local blue = Instance.new("UIGradient")
+		blue.Color = ColorSequence.new(Color3.fromRGB(42, 101, 255), Color3.fromRGB(35, 76, 241))
+		blue.Rotation = 25
+		blue.Parent = badge
+		local function checkBar(name, x, y, width, rotation)
+			local bar = Instance.new("Frame")
+			bar.Name = name
+			bar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			bar.BorderSizePixel = 0
+			bar.AnchorPoint = Vector2.new(0.5, 0.5)
+			bar.Position = UDim2.fromScale(x, y)
+			bar.Size = UDim2.fromScale(width, 0.16)
+			bar.Rotation = rotation
+			bar.Parent = badge
+			local endcap = Instance.new("UICorner")
+			endcap.CornerRadius = UDim.new(1, 0)
+			endcap.Parent = bar
+		end
+		checkBar("CheckShort", 0.35, 0.55, 0.46, 30)
+		checkBar("CheckLong", 0.61, 0.48, 0.62, -60)
 	end
 
 	local function updateHeight(entry)
