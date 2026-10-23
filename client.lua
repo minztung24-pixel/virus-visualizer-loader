@@ -24,8 +24,8 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
--- Call from a LocalScript for a local visual only. The blue check is drawn
--- with frames; it does not change account verification.
+-- Call from a LocalScript for a local visual only. The blue check uses the
+-- Roblox client texture; it does not change account verification.
 -- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
 -- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
 -- RunService is not needed.
@@ -107,38 +107,20 @@ local function createDeveloperNameplate(api)
 		entry.gui:Destroy()
 	end
 
-	local function makeCheck(parent)
-		local badge = Instance.new("Frame")
+	local function makeCheck(gui)
+		local badge = Instance.new("ImageLabel")
 		badge.Name = "DecorativeBlueCheck"
-		badge.BackgroundColor3 = Color3.fromRGB(39, 91, 249)
+		badge.BackgroundTransparency = 1
 		badge.BorderSizePixel = 0
-		badge.Position = UDim2.fromScale(0.81, 0.19)
-		badge.Size = UDim2.fromScale(0.115, 0.62)
-		badge.Rotation = 15
-		badge.Parent = parent
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0.12, 0)
-		corner.Parent = badge
-		local blue = Instance.new("UIGradient")
-		blue.Color = ColorSequence.new(Color3.fromRGB(42, 101, 255), Color3.fromRGB(35, 76, 241))
-		blue.Rotation = 25
-		blue.Parent = badge
-		local function checkBar(name, x, y, width, rotation)
-			local bar = Instance.new("Frame")
-			bar.Name = name
-			bar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			bar.BorderSizePixel = 0
-			bar.AnchorPoint = Vector2.new(0.5, 0.5)
-			bar.Position = UDim2.fromScale(x, y)
-			bar.Size = UDim2.fromScale(width, 0.16)
-			bar.Rotation = rotation
-			bar.Parent = badge
-			local endcap = Instance.new("UICorner")
-			endcap.CornerRadius = UDim.new(1, 0)
-			endcap.Parent = bar
-		end
-		checkBar("CheckShort", 0.35, 0.55, 0.46, 30)
-		checkBar("CheckLong", 0.61, 0.48, 0.62, -60)
+		badge.Position = UDim2.fromScale(0.82, 0.15)
+		badge.Size = UDim2.fromScale(0.13, 0.70)
+		badge.Image = "rbxasset://textures/ui/VerifiedBadgeNameIcon.png"
+		badge.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		badge.ImageTransparency = 0
+		badge.ScaleType = Enum.ScaleType.Fit
+		badge.ZIndex = 10
+		badge.Visible = true
+		badge.Parent = gui
 	end
 
 	local function updateHeight(entry)
@@ -216,7 +198,7 @@ local function createDeveloperNameplate(api)
 		gradient.Rotation = 16
 		gradient.Parent = label
 
-		makeCheck(plate)
+		makeCheck(gui)
 		gui.Parent = anchor
 
 		local entry = { model = model, anchor = anchor, isHead = isHead, gui = gui, stroke = stroke,
