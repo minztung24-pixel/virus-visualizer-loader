@@ -1796,7 +1796,7 @@ local function createRoomBodyDisplay(api)
         if not renderer or not root then error("Bộ thân nguồn chưa tải đủ") end
         local rig = renderer.RigType.Name
         local cloneClipIds = resolveCloneClips(source, description, rig)
-        local retargetR15 = description.exactBody and rig == "R15"
+        local retargetR15 = description.forceFullRig and rig == "R15"
             and snapshot.humanoid.RigType == api.Enum.HumanoidRigType.R6
         renderer.EvaluateStateMachine = false
         renderer.AutomaticScalingEnabled = false
@@ -1992,7 +1992,20 @@ local function createRoomBodyDisplay(api)
                 part.Transparency = 1
             end
         end
+        local function disablePhysicalContacts()
+            -- Roblox may enable torso collisions when a Humanoid model enters
+            -- the Workspace. The display overlaps the real character, so
+            -- collisions here push the real character upward on every sync.
+            for _, part in ipairs(model:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                    part.CanTouch = false
+                    part.CanQuery = false
+                end
+            end
+        end
         model.Parent = camera
+        disablePhysicalContacts()
         if rig == "R6" and api.createR6Driver then
             body.r6Driver = api.createR6Driver(model, snapshot.humanoid, snapshot.character, function()
                 return snapshot.bodyDisplay == body
@@ -2001,7 +2014,10 @@ local function createRoomBodyDisplay(api)
         body.connections[#body.connections+1] = api.RunService.RenderStepped:Connect(function()
             local ok, problem = pcall(function()
                 local currentCamera = api.Workspace.CurrentCamera
-                if currentCamera and model.Parent ~= currentCamera then model.Parent = currentCamera end
+                if currentCamera and model.Parent ~= currentCamera then
+                    model.Parent = currentCamera
+                    disablePhysicalContacts()
+                end
                 sync()
             end)
             if not ok then
@@ -4051,11 +4067,6 @@ local extras = createV8Additions({
         end
     end,
 })
-local scaleFields = {
-    "HeightScale", "WidthScale", "DepthScale", "HeadScale",
-    "BodyTypeScale", "ProportionScale",
-}
-
 local function isCosmetic(item)
     return item:IsA("Accoutrement") or item:IsA("Shirt") or item:IsA("Pants")
         or item:IsA("ShirtGraphic") or item:IsA("BodyColors")
@@ -4186,9 +4197,12 @@ local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetD
     end
 
     if targetData.useBody then
-        -- Brockkodile's classic clothing and custom body need the complete
-        -- generated model, including its passive appearance renderer.
-        local display = (targetData.fromLive or targetData.exactBody)
+        -- Classic clothing needs a passive Humanoid to render on the complete
+        -- visual body. Mesh-only avatars can use the lighter display path.
+        local hasClassicClothing = sourceModel:FindFirstChildOfClass("Shirt")
+            or sourceModel:FindFirstChildOfClass("Pants")
+            or sourceModel:FindFirstChildOfClass("ShirtGraphic")
+        local display = (targetData.fromLive or hasClassicClothing)
             and roomBodyDisplay or bodyDisplay
         display:Apply(sourceModel, snapshot, targetData)
         humanoid.DisplayName = username
@@ -4284,25 +4298,7 @@ local function applyAvatar(rawUsername)
         end)
         if not current() then state.avatarBusy = false; return end
         local accountRig = okInfo and type(info) == "table" and info.playerAvatarType
-        local exactBrock = username:lower() == "brockkodile"
-        if exactBrock and accountRig ~= "R6" and accountRig ~= "R15" then
-            local okAgain, againInfo = pcall(function()
-                return Players:GetCharacterAppearanceInfoAsync(userId)
-            end)
-            if not current() then state.avatarBusy = false; return end
-            accountRig = okAgain and type(againInfo) == "table" and againInfo.playerAvatarType
-            if accountRig ~= "R6" and accountRig ~= "R15" then
-                state.avatarBusy = false
-                setError("Rig avatar lỗi", "Chưa xác định được R6/R15 của @Brockkodile; hãy thử lại")
-                return
-            end
-        end
-        -- This named preset must use the profile appearance, not a room
-        -- character that Steal an Egg may have altered after spawning.
-        local okRoom, roomModel, roomData = true, nil, nil
-        if not exactBrock then
-            okRoom,roomModel,roomData = pcall(function() return cloneRoomAvatar(userId) end)
-        end
+        local okRoom, roomModel, roomData = pcall(function() return cloneRoomAvatar(userId) end)
         if not current() then
             if okRoom and roomModel then roomModel:Destroy() end
             state.avatarBusy=false; return
@@ -4337,26 +4333,14 @@ local function applyAvatar(rawUsername)
             "JumpAnimation", "FallAnimation"}) do
             targetData[field] = description[field]
         end
-        local nativeBody = bodyDisplay:CanUse(targetData)
         local hasAccountRig = accountRig == "R6" or accountRig == "R15"
         targetData.sourceRig = hasAccountRig and accountRig or humanoid.RigType.Name
         targetData.forceFullRig = hasAccountRig
-            and accountRig ~= humanoid.RigType.Name and not nativeBody
-        targetData.exactBody = exactBrock
-        targetData.useBody = nativeBody or targetData.forceFullRig or targetData.exactBody
+            and accountRig ~= humanoid.RigType.Name
+        targetData.useBody = true
         local modelRig = targetData.sourceRig == "R15" and Enum.HumanoidRigType.R15
             or Enum.HumanoidRigType.R6
         pcall(function() description.UseAvatarSettings = false end)
-        local okOriginal, original = pcall(function() return humanoid:GetAppliedDescription() end)
-        if okOriginal and original then
-            local okScale, scaleError = pcall(function()
-                if not targetData.useBody then
-                    for _, field in ipairs(scaleFields) do description[field] = original[field] end
-                end
-            end)
-            if not okScale then warn("[Gift Player V8] Scale: " .. tostring(scaleError)) end
-            original:Destroy()
-        end
         okModel, model = pcall(function()
             return Players:CreateHumanoidModelFromDescriptionAsync(description, modelRig)
         end)
