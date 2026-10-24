@@ -109,8 +109,8 @@ local function createDeveloperNameplate(api)
 	local cloneTitleMode = "follow"
 	local cloneRoleMode = "follow"
 	local companionStyles = {}
-	local roleShineColor = {owner = "white", admin = "white", developer = "white"}
-	local roleColorKey = {owner = "red", admin = "red", developer = "red"}
+	local roleShineColor = {owner = "white", admin = "white", developer = "white", creator = "white"}
+	local roleColorKey = {owner = "red", admin = "red", developer = "red", creator = "red"}
 	local roleShinePalette = {
 		white = Color3.fromRGB(255, 255, 255),
 		yellow = Color3.fromRGB(255, 229, 101),
@@ -162,14 +162,13 @@ local function createDeveloperNameplate(api)
 		local start = (style and style.direction or shineDirection) == "right" and -1.3 or 1.3
 		entry.gradient.Offset = Vector2.new(start, 0)
 		entry.shineTween = TweenService:Create(entry.gradient,
-			TweenInfo.new(2.7, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, 1.2),
+			TweenInfo.new(1.35, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, 1.8),
 			{ Offset = Vector2.new(-start, 0) })
 		entry.shineTween:Play()
 	end
-	local function roleGradient(selectedRole, style)
-		local base = palette[style and style.roleColor or roleColorKey[selectedRole]].text
-		local selected = style and (selectedRole == "owner" and style.ownerShine
-			or selectedRole == "admin" and style.adminShine or style.developerShine)
+	local function roleGradient(selectedRole, style, colorOverride)
+		local base = palette[colorOverride or (style and style.roleColor) or roleColorKey[selectedRole]].text
+		local selected = (style and style[selectedRole .. "Shine"])
 			or roleShineColor[selectedRole] or "white"
 		local shine = roleShinePalette[selected]
 		local core = shine:Lerp(Color3.fromRGB(255, 255, 255), 0.18)
@@ -280,13 +279,16 @@ local function createDeveloperNameplate(api)
 		local stacked = isDisplay and role ~= "off"
 		local shownName = entry.displayName or displayText
 		entry.label.Text = isDisplay and (shownName ~= "" and shownName or "Display Name")
-			or mode == "creator" and "Creator" or "Developer"
+			or "[" .. mode:upper() .. "]"
 		entry.label.Font = isDisplay and Enum.Font.GothamSemibold or Enum.Font.GothamBlack
 		entry.label.TextColor3 = isDisplay and Color3.fromRGB(246, 248, 255)
 			or palette[chosenColor].text
-		entry.label.TextStrokeTransparency = isDisplay and 0.72 or 0.2
+		entry.label.TextStrokeColor3 = isDisplay and Color3.fromRGB(5, 12, 27)
+			or Color3.fromRGB(10, 3, 5)
+		entry.label.TextStrokeTransparency = isDisplay and 0.72 or 0
 		entry.gradient.Enabled = not isDisplay
-		entry.gradient.Color = textGradient(chosenColor)
+		entry.gradient.Color = isDisplay and textGradient(chosenColor)
+			or roleGradient(mode, style, chosenColor)
 		entry.plate.BackgroundColor3 = palette[chosenColor].surface
 		entry.stroke.Color = palette[chosenColor].accent
 		entry.gui.Size = UDim2.fromScale(3.2 * chosenSize, (stacked and 1.04 or 0.64) * chosenSize)
@@ -311,8 +313,9 @@ local function createDeveloperNameplate(api)
 		entry.badge.Size = UDim2.fromScale(0.13, stacked and 0.40 or 0.70)
 		entry.roleLabel.Visible = stacked
 		entry.roleGradient.Enabled = stacked
-		entry.roleLabel.Position = UDim2.fromScale(role == "developer" and 0.07 or 0.22, 0)
-		entry.roleLabel.Size = UDim2.fromScale(role == "developer" and 0.86 or 0.56, 0.40)
+		local longRole = role == "developer" or role == "creator"
+		entry.roleLabel.Position = UDim2.fromScale(longRole and 0.07 or 0.22, 0)
+		entry.roleLabel.Size = UDim2.fromScale(longRole and 0.86 or 0.56, 0.40)
 		if isDisplay then
 			if entry.shineTween then entry.shineTween:Cancel() end
 			if stacked then
@@ -451,9 +454,10 @@ local function createDeveloperNameplate(api)
 
 	function feature:SetCloneStyle(mode, role)
 		assert(mode == "follow" or mode == "off" or mode == "developer"
-			or mode == "creator" or mode == "display", "Invalid clone title mode")
+			or mode == "creator" or mode == "owner" or mode == "admin"
+			or mode == "display", "Invalid clone title mode")
 		assert(role == "follow" or role == "off" or role == "owner"
-			or role == "admin" or role == "developer", "Invalid clone role")
+			or role == "admin" or role == "developer" or role == "creator", "Invalid clone role")
 		if destroyed then return end
 		cloneTitleMode, cloneRoleMode = mode, role
 		if entries.clone then
@@ -465,13 +469,15 @@ local function createDeveloperNameplate(api)
 	function feature:SetCompanionStyle(index, style)
 		assert(index == 1 or index == 2, "Companion index must be 1 or 2")
 		assert(type(style) == "table" and (style.mode == "off" or style.mode == "developer"
-			or style.mode == "creator" or style.mode == "display"), "Invalid companion title")
+			or style.mode == "creator" or style.mode == "owner"
+			or style.mode == "admin" or style.mode == "display"), "Invalid companion title")
 		assert(style.role == "off" or style.role == "owner" or style.role == "admin"
-			or style.role == "developer", "Invalid companion role")
+			or style.role == "developer" or style.role == "creator", "Invalid companion role")
 		assert(palette[style.color] and palette[style.roleColor]
 			and roleShinePalette[style.ownerShine]
 			and roleShinePalette[style.adminShine]
-			and roleShinePalette[style.developerShine], "Invalid companion colors")
+			and roleShinePalette[style.developerShine]
+			and roleShinePalette[style.creatorShine], "Invalid companion colors")
 		assert(style.direction == "left" or style.direction == "right", "Invalid shine direction")
 		assert(type(style.height) == "number" and type(style.size) == "number", "Invalid companion size")
 		if destroyed then return end
@@ -480,7 +486,7 @@ local function createDeveloperNameplate(api)
 			mode = style.mode, role = style.role, color = style.color,
 			roleColor = style.roleColor,
 			ownerShine = style.ownerShine, adminShine = style.adminShine,
-			developerShine = style.developerShine,
+			developerShine = style.developerShine, creatorShine = style.creatorShine,
 			direction = style.direction, height = math.clamp(style.height, 0, 3),
 			size = math.clamp(style.size, 0.7, 1.6),
 		}
@@ -504,8 +510,8 @@ local function createDeveloperNameplate(api)
 	end
 
 	function feature:SetMode(value)
-		assert(value == "developer" or value == "creator" or value == "display",
-			"SetMode expects developer, creator, or display")
+		assert(value == "developer" or value == "creator" or value == "owner"
+			or value == "admin" or value == "display", "Invalid title mode")
 		if destroyed then return end
 		titleMode = value
 		for _, entry in pairs(entries) do updateStyle(entry) end
@@ -513,15 +519,14 @@ local function createDeveloperNameplate(api)
 
 	function feature:SetRole(value)
 		assert(value == "off" or value == "owner" or value == "admin"
-			or value == "developer", "SetRole expects off, owner, admin, or developer")
+			or value == "developer" or value == "creator", "Invalid role")
 		if destroyed then return end
 		roleMode = value
 		for _, entry in pairs(entries) do updateStyle(entry) end
 	end
 
 	function feature:SetRoleShineColor(role, value)
-		assert(role == "owner" or role == "admin" or role == "developer",
-			"SetRoleShineColor expects owner, admin, or developer")
+		assert(roleShineColor[role] ~= nil, "Invalid shine role")
 		assert(roleShinePalette[value] ~= nil, "SetRoleShineColor expects white, yellow, or red")
 		if destroyed then return end
 		roleShineColor[role] = value
@@ -581,18 +586,19 @@ local function createVisualizerSettings(api)
     local file="THT_Item_Visualizer_"..tostring(api.placeId)..".json"
     local function companionDefaults()
         return {mode="display",role="off",color="blue",roleColor="red",ownerShine="white",
-            adminShine="white",developerShine="white",direction="right",height=0.75,size=1}
+            adminShine="white",developerShine="white",creatorShine="white",direction="right",height=0.75,size=1}
     end
     local data={version=1,hideRoom=true,username="",avatar="",weapon="",
         pack="",moon=false,developer=false,developerMode="developer",developerColor="blue",
-        developerRole="off",developerRoleColors={owner="red",admin="red",developer="red"},
+        developerRole="off",developerRoleColors={owner="red",admin="red",developer="red",creator="red"},
         developerOwnerShine="white",developerAdminShine="white",
-        developerDeveloperShine="white",
+        developerDeveloperShine="white",developerCreatorShine="white",
         cloneTitleMode="follow",cloneRole="follow",
         companionTitles={companionDefaults(),companionDefaults()},
         companionUsernames={"",""},companionPacks={"default","default"},
         developerShineDirection="right",developerHeight=0.75,developerSize=1,
-        page="avatar",collapsed=false}
+        page="avatar",collapsed=false,
+        autoExecute=false,autoReconnect=false,showStatus=true,antiAfk=false}
     local disk=type(api.readfile)=="function" and type(api.writefile)=="function"
     local raw
     if disk then
@@ -614,31 +620,35 @@ local function createVisualizerSettings(api)
             if type(value.moon)=="boolean" then data.moon=value.moon end
             if type(value.developer)=="boolean" then data.developer=value.developer end
             if value.developerMode=="developer" or value.developerMode=="creator"
+                or value.developerMode=="owner" or value.developerMode=="admin"
                 or value.developerMode=="display" then data.developerMode=value.developerMode end
             if value.developerRole=="off" or value.developerRole=="owner"
-                or value.developerRole=="admin" or value.developerRole=="developer" then
+                or value.developerRole=="admin" or value.developerRole=="developer"
+                or value.developerRole=="creator" then
                 data.developerRole=value.developerRole end
             if value.cloneTitleMode=="follow" or value.cloneTitleMode=="off"
                 or value.cloneTitleMode=="developer" or value.cloneTitleMode=="creator"
+                or value.cloneTitleMode=="owner" or value.cloneTitleMode=="admin"
                 or value.cloneTitleMode=="display" then data.cloneTitleMode=value.cloneTitleMode end
             if value.cloneRole=="follow" or value.cloneRole=="off"
                 or value.cloneRole=="owner" or value.cloneRole=="admin"
-                or value.cloneRole=="developer" then data.cloneRole=value.cloneRole end
+                or value.cloneRole=="developer" or value.cloneRole=="creator" then data.cloneRole=value.cloneRole end
             if type(value.companionTitles)=="table" then
                 for index=1,2 do
                     local saved=value.companionTitles[index]
                     if type(saved)=="table" then
                         local style=data.companionTitles[index]
                         if saved.mode=="off" or saved.mode=="developer" or saved.mode=="creator"
+                            or saved.mode=="owner" or saved.mode=="admin"
                             or saved.mode=="display" then style.mode=saved.mode end
                         if saved.role=="off" or saved.role=="owner" or saved.role=="admin"
-                            or saved.role=="developer" then style.role=saved.role end
+                            or saved.role=="developer" or saved.role=="creator" then style.role=saved.role end
                         if saved.color=="blue" or saved.color=="sky" or saved.color=="navy" or saved.color=="red"
                             or saved.color=="yellow" then style.color=saved.color end
                         if saved.roleColor=="blue" or saved.roleColor=="sky" or saved.roleColor=="navy"
                             or saved.roleColor=="red" or saved.roleColor=="yellow" then
                             style.roleColor=saved.roleColor end
-                        for _,field in ipairs({"ownerShine","adminShine","developerShine"}) do
+                        for _,field in ipairs({"ownerShine","adminShine","developerShine","creatorShine"}) do
                             if saved[field]=="white" or saved[field]=="yellow" or saved[field]=="red" then
                                 style[field]=saved[field]
                             end
@@ -675,7 +685,8 @@ local function createVisualizerSettings(api)
                 data.developerAdminShine=value.developerRoleShine
             end
             for _,entry in ipairs({{"developerOwnerShine","owner"},
-                {"developerAdminShine","admin"},{"developerDeveloperShine","developer"}}) do
+                {"developerAdminShine","admin"},{"developerDeveloperShine","developer"},
+                {"developerCreatorShine","creator"}}) do
                 local selected=value[entry[1]]
                 if selected=="white" or selected=="yellow" or selected=="red" then
                     data[entry[1]]=selected
@@ -684,7 +695,7 @@ local function createVisualizerSettings(api)
             if value.developerColor=="blue" or value.developerColor=="sky" or value.developerColor=="navy" or value.developerColor=="red"
                 or value.developerColor=="yellow" then data.developerColor=value.developerColor end
             if type(value.developerRoleColors)=="table" then
-                for _,role in ipairs({"owner","admin","developer"}) do
+                for _,role in ipairs({"owner","admin","developer","creator"}) do
                     local selected=value.developerRoleColors[role]
                     if selected=="blue" or selected=="sky" or selected=="navy" or selected=="red"
                         or selected=="yellow" then data.developerRoleColors[role]=selected end
@@ -698,6 +709,9 @@ local function createVisualizerSettings(api)
                 data.developerSize=math.clamp(value.developerSize,0.7,1.6) end
             if value.page=="avatar" or value.page=="weapons" or value.page=="effects" or value.page=="clone" then data.page=value.page end
             if type(value.collapsed)=="boolean" then data.collapsed=value.collapsed end
+            for _,field in ipairs({"autoExecute","autoReconnect","showStatus","antiAfk"}) do
+                if type(value[field])=="boolean" then data[field]=value[field] end
+            end
         end
     end
     local function save()
@@ -825,7 +839,7 @@ for index,entry in ipairs({{"avatar","AVATAR"},{"weapons","VŨ KHÍ"},{"effects"
     if id=="effects" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
         page.ScrollBarImageColor3=Color3.fromRGB(124,103,199)
-        page.CanvasSize=UDim2.fromOffset(0,1010)
+        page.CanvasSize=UDim2.fromOffset(0,1480)
         page.ScrollingDirection=Enum.ScrollingDirection.Y
     elseif id=="clone" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
@@ -887,28 +901,34 @@ makeText(moonCard,"MOONBLOOM TRAIL",12,9,310,21,12,theme.text)
 local moonButton=makeButton(moonCard,"Moonbloom Trail: TẮT",12,43,316,31,Color3.fromRGB(69,58,94))
 makeText(effectsPage,"Bấm lại gói đang chọn để tắt.",0,365,340,20,11,theme.muted)
 section(effectsPage,"DANH HIỆU NHÂN VẬT",396)
-local developerCard=surface(effectsPage,423,655)
+local developerCard=surface(effectsPage,423,785)
 makeText(developerCard,"Danh hiệu / tên hiển thị  •  tích xanh",12,9,316,21,12,theme.text)
 local developerToggle=makeButton(developerCard,"Danh hiệu: TẮT",12,37,316,32,Color3.fromRGB(69,58,94))
 developerToggle.Name="DeveloperToggle"
 local titleModeButtons={}
 for index,entry in ipairs({{"developer","Developer"},{"creator","Creator"},
-    {"display","Tên hiển thị"}}) do
-    local button=makeButton(developerCard,entry[2],12+(index-1)*107,78,102,31,theme.card)
+    {"display","Tên hiển thị"},{"owner","Owner"},{"admin","Admin"}}) do
+    local topRow=index<=3
+    local button=makeButton(developerCard,entry[2],
+        topRow and 12+(index-1)*107 or 12+(index-4)*164,
+        topRow and 78 or 113,topRow and 102 or 152,31,theme.card)
     button.Name="TitleMode_"..entry[1]
     button.TextSize=11
     titleModeButtons[entry[1]]=button
 end
-makeText(developerCard,"VAI TRÒ TRÊN TÊN HIỂN THỊ",12,116,316,18,10,theme.muted)
+makeText(developerCard,"VAI TRÒ TRÊN TÊN HIỂN THỊ",12,151,316,18,10,theme.muted)
 local roleButtons={}
 for index,entry in ipairs({{"off","KHÔNG"},{"owner","OWNER"},
-    {"admin","ADMIN"},{"developer","DEVELOPER"}}) do
-    local button=makeButton(developerCard,entry[2],12+(index-1)*79,138,73,30,theme.card)
+    {"admin","ADMIN"},{"developer","DEVELOPER"},{"creator","CREATOR"}}) do
+    local topRow=index<=3
+    local button=makeButton(developerCard,entry[2],
+        topRow and 12+(index-1)*107 or 12+(index-4)*164,
+        topRow and 173 or 208,topRow and 102 or 152,30,theme.card)
     button.Name="RoleMode_"..entry[1]
     button.TextSize=entry[1]=="developer" and 9 or 10
     roleButtons[entry[1]]=button
 end
-local developerColorCaption=makeText(developerCard,"MÀU DANH HIỆU",12,172,316,18,10,theme.muted)
+local developerColorCaption=makeText(developerCard,"MÀU DANH HIỆU",12,245,316,18,10,theme.muted)
 local developerColors={}
 for index,entry in ipairs({{"blue","XANH SÁNG",Color3.fromRGB(0,140,235)},
     {"sky","XANH TRỜI",Color3.fromRGB(79,190,255)},
@@ -918,16 +938,16 @@ for index,entry in ipairs({{"blue","XANH SÁNG",Color3.fromRGB(0,140,235)},
     local topRow=index<=3
     local button=makeButton(developerCard,entry[2],
         topRow and 12+(index-1)*107 or 12+(index-4)*164,
-        topRow and 194 or 230,topRow and 102 or 152,31,entry[3])
+        topRow and 267 or 303,topRow and 102 or 152,31,entry[3])
     button.TextSize=entry[1]=="navy" and 8 or 10
     if entry[1]=="sky" or entry[1]=="yellow" then
         button.TextColor3=Color3.fromRGB(24,30,42)
     end
     developerColors[entry[1]]=button
 end
-local roleShineButtons={owner={},admin={},developer={}}
-for roleIndex,role in ipairs({"owner","admin","developer"}) do
-    local y=269+(roleIndex-1)*59
+local roleShineButtons={owner={},admin={},developer={},creator={}}
+for roleIndex,role in ipairs({"owner","admin","developer","creator"}) do
+    local y=342+(roleIndex-1)*59
     makeText(developerCard,"VỆT SÁNG "..role:upper(),12,y,316,18,10,theme.muted)
     for index,entry in ipairs({{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}}) do
         local button=makeButton(developerCard,entry[2],12+(index-1)*107,y+21,102,30,theme.card)
@@ -936,26 +956,39 @@ for roleIndex,role in ipairs({"owner","admin","developer"}) do
         roleShineButtons[role][entry[1]]=button
     end
 end
-makeText(developerCard,"HƯỚNG VỆT SÁNG",12,446,316,18,10,theme.muted)
-local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,467,152,31,theme.card)
-local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,467,152,31,theme.card)
+makeText(developerCard,"HƯỚNG VỆT SÁNG",12,578,316,18,10,theme.muted)
+local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,599,152,31,theme.card)
+local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,599,152,31,theme.card)
 shineRightButton.TextSize=11; shineLeftButton.TextSize=11
-makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,507,316,18,10,theme.muted)
-local heightDownButton=makeButton(developerCard,"−",12,529,69,32,theme.card)
-local heightValue=makeText(developerCard,"",91,531,155,27,13,theme.text)
+makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,639,316,18,10,theme.muted)
+local heightDownButton=makeButton(developerCard,"−",12,661,69,32,theme.card)
+local heightValue=makeText(developerCard,"",91,663,155,27,13,theme.text)
 heightValue.TextXAlignment=Enum.TextXAlignment.Center
-local heightUpButton=makeButton(developerCard,"+",258,529,70,32,theme.card)
-makeText(developerCard,"CỠ CHỮ",12,568,316,18,10,theme.muted)
-local sizeDownButton=makeButton(developerCard,"−",12,590,69,32,theme.card)
-local sizeValue=makeText(developerCard,"",91,592,155,27,13,theme.text)
+local heightUpButton=makeButton(developerCard,"+",258,661,70,32,theme.card)
+makeText(developerCard,"CỠ CHỮ",12,700,316,18,10,theme.muted)
+local sizeDownButton=makeButton(developerCard,"−",12,722,69,32,theme.card)
+local sizeValue=makeText(developerCard,"",91,724,155,27,13,theme.text)
 sizeValue.TextXAlignment=Enum.TextXAlignment.Center
-local sizeUpButton=makeButton(developerCard,"+",258,590,70,32,theme.card)
-makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,630,316,18,10,theme.muted)
+local sizeUpButton=makeButton(developerCard,"+",258,722,70,32,theme.card)
+makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,762,316,18,10,theme.muted)
+section(effectsPage,"TRẠNG THÁI",1220)
+local automationCard=surface(effectsPage,1247,205)
+local automationButtons={}
+for index,entry in ipairs({{"autoExecute","Auto Execute"},
+    {"autoReconnect","Auto Reconnect"},{"showStatus","Show Status"},
+    {"antiAfk","Anti-AFK"}}) do
+    local button=makeButton(automationCard,entry[2],12,10+(index-1)*47,316,37,theme.card)
+    button.Name="Automation_"..entry[1]
+    button.TextXAlignment=Enum.TextXAlignment.Left
+    button.TextSize=12
+    automationButtons[entry[1]]=button
+end
 local woodButton=makeButton(weaponPage,"Gậy gỗ / hình gốc",0,364,340,30,theme.card)
 local statusBar=Instance.new("Frame"); statusBar.Name="StatusBar"
 statusBar.BackgroundColor3=Color3.fromRGB(27,29,40); statusBar.BorderSizePixel=0
 statusBar.Position=UDim2.fromOffset(10,466); statusBar.Size=UDim2.fromOffset(340,27)
 statusBar.ZIndex=22; statusBar.Parent=body; corner(statusBar,7)
+statusBar.Visible=settings.showStatus
 makeText(statusBar,"•",8,4,12,18,13,Color3.fromRGB(154,129,255))
 local status=makeText(statusBar,"Sẵn sàng",24,4,306,19,10,theme.muted)
 showMenuPage(settings.page)
@@ -984,7 +1017,8 @@ developerNameplate:SetRole(settings.developerRole)
 developerNameplate:SetRoleShineColor("owner",settings.developerOwnerShine)
 developerNameplate:SetRoleShineColor("admin",settings.developerAdminShine)
 developerNameplate:SetRoleShineColor("developer",settings.developerDeveloperShine)
-for _,role in ipairs({"owner","admin","developer"}) do
+developerNameplate:SetRoleShineColor("creator",settings.developerCreatorShine)
+for _,role in ipairs({"owner","admin","developer","creator"}) do
     developerNameplate:SetRoleColor(role,settings.developerRoleColors[role])
 end
 developerNameplate:SetCloneStyle("follow","follow")
@@ -1107,7 +1141,8 @@ for key,button in pairs(developerColors) do
     developerColorStrokes[key]=stroke
 end
 local function paintDeveloperControls()
-    local names={developer="Developer",creator="Creator",display="Tên hiển thị"}
+    local names={developer="Developer",creator="Creator",owner="Owner",admin="Admin",
+        display="Tên hiển thị"}
     developerToggle.Text=(names[settings.developerMode] or "Danh hiệu")
         ..(settings.developer and ": BẬT" or ": TẮT")
     developerToggle.BackgroundColor3=settings.developer
@@ -1121,6 +1156,7 @@ local function paintDeveloperControls()
     for role,group in pairs(roleShineButtons) do
         local selected=role=="owner" and settings.developerOwnerShine
             or role=="admin" and settings.developerAdminShine
+            or role=="creator" and settings.developerCreatorShine
             or settings.developerDeveloperShine
         for key,button in pairs(group) do
             button.BackgroundColor3=selected==key and theme.purple or theme.card
@@ -1164,7 +1200,7 @@ for key,button in pairs(titleModeButtons) do
         refreshDeveloperReal()
         paintDeveloperControls(); persistSettings()
         setStatus(key=="display" and "Đang hiện Display Name cục bộ"
-            or "Đã chọn danh hiệu "..(key=="creator" and "Creator" or "Developer"))
+            or "Đã chọn danh hiệu "..key:upper())
     end)
 end
 for key,button in pairs(roleButtons) do
@@ -1180,6 +1216,7 @@ for role,group in pairs(roleShineButtons) do
         on(button.MouseButton1Click,function()
             if role=="owner" then settings.developerOwnerShine=key
             elseif role=="admin" then settings.developerAdminShine=key
+            elseif role=="creator" then settings.developerCreatorShine=key
             else settings.developerDeveloperShine=key end
             developerNameplate:SetRoleShineColor(role,key)
             paintDeveloperControls(); persistSettings()
@@ -1203,6 +1240,81 @@ for key,button in pairs(developerColors) do
             ..": "..developerColorLabels[key])
     end)
 end
+local loaderUrl="https://raw.githubusercontent.com/minztung24-pixel/virus-visualizer-loader/main/client.lua"
+local autoBootCode=([[
+if game.PlaceId ~= %d then return end
+if not game:IsLoaded() then game.Loaded:Wait() end
+local env=type(getgenv)=="function" and getgenv() or _G
+if env.__THTItemVisualizerAutoStarted
+    or (env.__giftPlayerWeaponPicker and env.__giftPlayerWeaponPicker.alive) then return end
+env.__THTItemVisualizerAutoStarted=true
+local ok,problem=pcall(function()
+    assert(loadstring(game:HttpGet(%q)))()
+end)
+if not ok then
+    env.__THTItemVisualizerAutoStarted=nil
+    warn("[THT Auto Execute] "..tostring(problem))
+end
+]]):format(game.PlaceId,loaderUrl)
+local reconnectCode=([[
+local ok,raw=pcall(function() return readfile(%q) end)
+if not ok or type(raw)~="string" then return end
+local decoded,options=pcall(function()
+    return game:GetService("HttpService"):JSONDecode(raw)
+end)
+if not decoded or type(options)~="table" or options.autoReconnect~=true then return end
+]]):format("THT_Item_Visualizer_"..tostring(game.PlaceId)..".json")..autoBootCode
+local queuedReconnect=false
+local function queueReconnect()
+    if queuedReconnect then return true end
+    local queue=queue_on_teleport or queueonteleport
+    if type(queue)~="function" then return false end
+    local ok=pcall(queue,reconnectCode)
+    if ok then queuedReconnect=true end
+    return ok
+end
+local automationLabels={autoExecute="Auto Execute",autoReconnect="Auto Reconnect",
+    showStatus="Show Status",antiAfk="Anti-AFK"}
+local function paintAutomation()
+    for key,button in pairs(automationButtons) do
+        button.Text="   "..automationLabels[key]..(settings[key] and "  •  BẬT" or "  •  TẮT")
+        button.BackgroundColor3=settings[key] and Color3.fromRGB(57,161,112) or theme.card
+    end
+    statusBar.Visible=settings.showStatus
+end
+paintAutomation()
+for key,button in pairs(automationButtons) do
+    on(button.MouseButton1Click,function()
+        local enabled=not settings[key]
+        if key=="autoExecute" and enabled and not settingsPersistent then
+            setStatus("Auto Execute cần bản Potassium có lưu cài đặt.")
+            return
+        elseif key=="autoReconnect" and enabled then
+            if not settingsPersistent or not queueReconnect() then
+                setStatus("Auto Reconnect cần lưu cài đặt và queue_on_teleport của Potassium.")
+                return
+            end
+        end
+        settings[key]=enabled
+        persistSettings()
+        paintAutomation()
+        setStatus(automationLabels[key]..(enabled and ": BẬT" or ": TẮT"))
+    end)
+end
+if settings.autoReconnect then queueReconnect() end
+on(localPlayer.Idled,function()
+    if not settings.antiAfk then return end
+    local camera=workspace.CurrentCamera
+    if not camera then return end
+    local ok,problem=pcall(function()
+        local virtualUser=game:GetService("VirtualUser")
+        virtualUser:CaptureController()
+        virtualUser:Button2Down(Vector2.zero,camera.CFrame)
+        task.wait(0.15)
+        virtualUser:Button2Up(Vector2.zero,camera.CFrame)
+    end)
+    if not ok then setStatus("Anti-AFK không gửi được thao tác: "..tostring(problem)) end
+end)
 on(shineRightButton.MouseButton1Click,function()
     settings.developerShineDirection="right"
     developerNameplate:SetShineDirection("right")
@@ -6048,7 +6160,8 @@ end
 local socialApplyA,socialPackA=makeSocialActionRow("Friend1",10,"Apply bạn 1","Động tác 1: GỐC")
 local function companionDefaults()
 	return {mode="display",role="off",color="blue",roleColor="red",ownerShine="white",
-		adminShine="white",developerShine="white",direction="right",height=0.75,size=1}
+		adminShine="white",developerShine="white",creatorShine="white",
+		direction="right",height=0.75,size=1}
 end
 local companionStyles = {companionDefaults(),companionDefaults()}
 local hasCompanionTitles = type(integrationState)=="table"
@@ -6081,7 +6194,7 @@ local function makeCompanionTitleCard(index,order)
 	local content=Instance.new("Frame")
 	content.Name="Options"
 	content.Position=UDim2.fromOffset(0,34)
-		content.Size=UDim2.new(1,0,0,509)
+		content.Size=UDim2.new(1,0,0,629)
 	content.BackgroundColor3=Color3.fromRGB(32,29,50)
 	content.BorderSizePixel=0
 	content.Visible=false
@@ -6103,20 +6216,21 @@ local function makeCompanionTitleCard(index,order)
 		local count=#choices
 		local width=(282-(count-1)*4)/count
 		for choiceIndex,choice in ipairs(choices) do
-			local colorRow=key=="color" and count==5
-			local topRow=not colorRow or choiceIndex<=3
-			local buttonWidth=colorRow and (topRow and 91 or 139) or width
-			local buttonX=colorRow and (topRow and 8+(choiceIndex-1)*95
-				or 8+(choiceIndex-4)*143) or 8+(choiceIndex-1)*(width+4)
+			local wrappedRow=count>=5
+			local topRow=not wrappedRow or choiceIndex<=3
+			local buttonWidth=wrappedRow and (topRow and 91 or count==5 and 139 or 91) or width
+			local buttonX=wrappedRow and (topRow and 8+(choiceIndex-1)*95
+				or 8+(choiceIndex-4)*(count==5 and 143 or 95)) or 8+(choiceIndex-1)*(width+4)
 			local button=Instance.new("TextButton")
 			button.Name=key.."_"..choice[1]
-			button.Position=UDim2.fromOffset(buttonX,y+16+(colorRow and not topRow and 31 or 0))
+			button.Position=UDim2.fromOffset(buttonX,y+16+(wrappedRow and not topRow and 31 or 0))
 			button.Size=UDim2.fromOffset(buttonWidth,27)
 			button.BackgroundColor3=Color3.fromRGB(47,48,69)
 			button.BorderSizePixel=0
 			button.Text=choice[2]
 			button.TextColor3=Color3.fromRGB(244,246,255)
-			button.TextSize=colorRow and choice[1]=="navy" and 8 or count==4 and 9 or 10
+			button.TextSize=key=="color" and choice[1]=="navy" and 8
+				or wrappedRow and 9 or count==4 and 9 or 10
 			button.Font=Enum.Font.GothamMedium
 			button.Parent=content
 			local corner=Instance.new("UICorner"); corner.CornerRadius=UDim.new(0,5); corner.Parent=button
@@ -6131,20 +6245,22 @@ local function makeCompanionTitleCard(index,order)
 		end
 		return label
 	end
-	row("mode","DANH HIỆU / TÊN HIỂN THỊ",5,{{"off","TẮT"},{"developer","DEVELOPER"},{"creator","CREATOR"},{"display","TÊN HIỂN THỊ"}})
-	row("role","VAI TRÒ TRÊN TÊN",55,{{"off","KHÔNG"},{"owner","OWNER"},
-		{"admin","ADMIN"},{"developer","DEVELOPER"}})
-	local colorCaption=row("color","MÀU DANH HIỆU / VAI TRÒ",105,{{"blue","XANH SÁNG"},{"sky","XANH TRỜI"},{"navy","XANH DƯƠNG ĐẬM"},{"red","ĐỎ"},{"yellow","VÀNG"}})
-	row("ownerShine","VỆT SÁNG OWNER",190,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("adminShine","VỆT SÁNG ADMIN",240,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("developerShine","VỆT SÁNG DEVELOPER",290,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("direction","HƯỚNG VỆT SÁNG",340,{{"right","TRÁI → PHẢI"},{"left","PHẢI → TRÁI"}})
+	row("mode","DANH HIỆU / TÊN HIỂN THỊ",5,{{"off","TẮT"},{"developer","DEVELOPER"},
+		{"creator","CREATOR"},{"owner","OWNER"},{"admin","ADMIN"},{"display","TÊN HIỂN THỊ"}})
+	row("role","VAI TRÒ TRÊN TÊN",90,{{"off","KHÔNG"},{"owner","OWNER"},
+		{"admin","ADMIN"},{"developer","DEVELOPER"},{"creator","CREATOR"}})
+	local colorCaption=row("color","MÀU DANH HIỆU / VAI TRÒ",175,{{"blue","XANH SÁNG"},{"sky","XANH TRỜI"},{"navy","XANH DƯƠNG ĐẬM"},{"red","ĐỎ"},{"yellow","VÀNG"}})
+	row("ownerShine","VỆT SÁNG OWNER",260,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("adminShine","VỆT SÁNG ADMIN",310,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("developerShine","VỆT SÁNG DEVELOPER",360,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("creatorShine","VỆT SÁNG CREATOR",410,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("direction","HƯỚNG VỆT SÁNG",460,{{"right","TRÁI → PHẢI"},{"left","PHẢI → TRÁI"}})
 	local function stepper(key,caption,y)
 		row(key,caption,y,{{"down","−"},{"value",""},{"up","+"}})
 		groups[key].value.AutoButtonColor=false
 	end
-	stepper("height","ĐỘ CAO TRÊN ĐẦU",390)
-	stepper("size","CỠ CHỮ",440)
+	stepper("height","ĐỘ CAO TRÊN ĐẦU",510)
+	stepper("size","CỠ CHỮ",560)
 	return {frame=card,header=header,content=content,groups=groups,
 		colorCaption=colorCaption,expanded=false,index=index}
 end
@@ -7424,7 +7540,8 @@ local function paintCompanionCard(index)
 		red={"ĐỎ",Color3.fromRGB(231,72,83)},
 		yellow={"VÀNG",Color3.fromRGB(239,181,54)},
 	}
-	local title={off="TẮT",developer="DEVELOPER",creator="CREATOR",display="TÊN HIỂN THỊ"}
+	local title={off="TẮT",developer="DEVELOPER",creator="CREATOR",
+		owner="OWNER",admin="ADMIN",display="TÊN HIỂN THỊ"}
 	card.header.Text="Danh hiệu bạn "..index..": "..(title[style.mode] or "TẮT")
 		..(card.expanded and "  ▲" or "  ▼")
 	card.colorCaption.Text=style.mode=="display" and "MÀU VAI TRÒ"
@@ -7459,7 +7576,7 @@ for index,card in ipairs(companionCards) do
 	connect(card.header.MouseButton1Click,function()
 		card.expanded=not card.expanded
 		card.content.Visible=card.expanded
-		card.frame.Size=UDim2.new(1,0,0,card.expanded and 545 or 32)
+		card.frame.Size=UDim2.new(1,0,0,card.expanded and 665 or 32)
 		paintCompanionCard(index)
 		refreshClonePanelHeight()
 	end)
