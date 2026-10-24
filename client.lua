@@ -1,5 +1,46 @@
+-- Catalog animation item IDs are not playable AnimationIds. Ask Roblox to
+-- build a temporary R15 rig so its Animate tree supplies the actual clips.
+local function resolveCatalogMotionPack(assets, poses)
+    local description = Instance.new("HumanoidDescription")
+    for _, pose in ipairs(poses) do
+        local id = assets[pose]
+        if id then
+            local property = pose:sub(1,1):upper() .. pose:sub(2) .. "Animation"
+            description[property] = id
+        end
+    end
+    local ok, model = pcall(function()
+        return game:GetService("Players"):CreateHumanoidModelFromDescriptionAsync(
+            description, Enum.HumanoidRigType.R15,
+            Enum.AssetTypeVerification.ClientOnly)
+    end)
+    description:Destroy()
+    if not ok or not model then error("Không tạo được gói chuyển động: " .. tostring(model)) end
+    local clips = {}
+    local animate = model:FindFirstChild("Animate", true)
+    for _, pose in ipairs(poses) do
+        if assets[pose] then
+            local group = animate and animate:FindFirstChild(pose)
+            local animation = group and (group:IsA("Animation") and group
+                or group:FindFirstChild("Animation1")
+                or group:FindFirstChildWhichIsA("Animation", true))
+            if animation and animation:IsA("Animation") and animation.AnimationId ~= "" then
+                clips[pose] = animation.AnimationId
+            end
+        end
+    end
+    model:Destroy()
+    for _, pose in ipairs(poses) do
+        if assets[pose] and not clips[pose] then
+            error("Thiếu clip " .. pose .. " trong gói chuyển động")
+        end
+    end
+    return clips
+end
+
 do
 local Players = game:GetService("Players")
+local UserService = game:GetService("UserService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local localPlayer = Players.LocalPlayer
@@ -47,11 +88,12 @@ local function createDeveloperNameplate(api)
 	local ColorSequence = api.ColorSequence or ColorSequence
 	local ColorSequenceKeypoint = api.ColorSequenceKeypoint or ColorSequenceKeypoint
 	local TweenService = api.TweenService
+	local TextService = api.TextService or game:GetService("TextService")
 
 	local palette = {
 		blue = { text = Color3.fromRGB(0, 162, 255), accent = Color3.fromRGB(58, 158, 255), surface = Color3.fromRGB(12, 31, 59) },
 		sky = { text = Color3.fromRGB(132, 215, 255), accent = Color3.fromRGB(132, 215, 255), surface = Color3.fromRGB(17, 40, 60) },
-		red = { text = Color3.fromRGB(255, 104, 119), accent = Color3.fromRGB(255, 99, 112), surface = Color3.fromRGB(57, 19, 32) },
+		red = { text = Color3.fromRGB(255, 44, 52), accent = Color3.fromRGB(255, 44, 52), surface = Color3.fromRGB(57, 19, 32) },
 		yellow = { text = Color3.fromRGB(255, 213, 77), accent = Color3.fromRGB(255, 209, 74), surface = Color3.fromRGB(54, 41, 18) },
 	}
 	local entries = {}
@@ -60,8 +102,24 @@ local function createDeveloperNameplate(api)
 	local shineDirection = "right"
 	local height = 0.75
 	local size = 1
+	local titleMode = "developer"
+	local displayText = ""
+	local roleMode = "off"
+	local cloneTitleMode = "follow"
+	local cloneRoleMode = "follow"
+	local companionStyles = {}
+	local roleShineColor = {owner = "white", admin = "white", developer = "white"}
+	local roleColorKey = {owner = "red", admin = "red", developer = "red"}
+	local roleShinePalette = {
+		white = Color3.fromRGB(255, 255, 255),
+		yellow = Color3.fromRGB(255, 229, 101),
+		red = Color3.fromRGB(255, 25, 34),
+	}
 	local destroyed = false
 	local feature = {}
+	local function companionStyle(entry)
+		return entry and companionStyles[entry.key] or nil
+	end
 	local function textGradient(key)
 		local base = palette[key].text
 		return ColorSequence.new({
@@ -74,22 +132,50 @@ local function createDeveloperNameplate(api)
 	end
 	local function playShine(entry)
 		if entry.shineTween then entry.shineTween:Cancel() end
-		local start = shineDirection == "right" and -1.3 or 1.3
+		local style = companionStyle(entry)
+		local start = (style and style.direction or shineDirection) == "right" and -1.3 or 1.3
 		entry.gradient.Offset = Vector2.new(start, 0)
 		entry.shineTween = TweenService:Create(entry.gradient,
 			TweenInfo.new(2.7, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, 1.2),
 			{ Offset = Vector2.new(-start, 0) })
 		entry.shineTween:Play()
 	end
+	local function roleGradient(selectedRole, style)
+		local base = palette[style and style.roleColor or roleColorKey[selectedRole]].text
+		local selected = style and (selectedRole == "owner" and style.ownerShine
+			or selectedRole == "admin" and style.adminShine or style.developerShine)
+			or roleShineColor[selectedRole] or "white"
+		local shine = roleShinePalette[selected]
+		local core = shine:Lerp(Color3.fromRGB(255, 255, 255), 0.18)
+		return ColorSequence.new({
+			ColorSequenceKeypoint.new(0, base),
+			ColorSequenceKeypoint.new(0.42, base),
+			ColorSequenceKeypoint.new(0.475, shine),
+			ColorSequenceKeypoint.new(0.5, core),
+			ColorSequenceKeypoint.new(0.525, shine),
+			ColorSequenceKeypoint.new(0.58, base),
+			ColorSequenceKeypoint.new(1, base),
+		})
+	end
+	local function playRoleShine(entry)
+		if entry.roleTween then entry.roleTween:Cancel() end
+		local style = companionStyle(entry)
+		local start = (style and style.direction or shineDirection) == "right" and -1.3 or 1.3
+		entry.roleGradient.Offset = Vector2.new(start, 0)
+		entry.roleTween = TweenService:Create(entry.roleGradient,
+			TweenInfo.new(1.35, Enum.EasingStyle.Linear, Enum.EasingDirection.Out, -1, false, 1.8),
+			{ Offset = Vector2.new(-start, 0) })
+		entry.roleTween:Play()
+	end
 
 	local function getAnchor(model)
-		local head = model:FindFirstChild("Head", true)
-		if head and head:IsA("BasePart") then
-			return head, true
-		end
 		local root = model:FindFirstChild("HumanoidRootPart", true)
 		if root and root:IsA("BasePart") then
 			return root, false
+		end
+		local head = model:FindFirstChild("Head", true)
+		if head and head:IsA("BasePart") then
+			return head, true
 		end
 		return nil, false
 	end
@@ -104,6 +190,7 @@ local function createDeveloperNameplate(api)
 			entry.destroying:Disconnect()
 		end
 		if entry.shineTween then entry.shineTween:Cancel() end
+		if entry.roleTween then entry.roleTween:Cancel() end
 		entry.gui:Destroy()
 	end
 
@@ -121,23 +208,99 @@ local function createDeveloperNameplate(api)
 		badge.ZIndex = 10
 		badge.Visible = true
 		badge.Parent = gui
+		return badge
 	end
 
 	local function updateHeight(entry)
-		local anchor = entry.anchor
-		local lift = anchor.Size.Y * 0.5 + 0.85 + height
-		if not entry.isHead then
-			local ok, boundsCFrame, boundsSize = pcall(function()
-				return entry.model:GetBoundingBox()
-			end)
-			if ok then
-				lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5 - anchor.Position.Y + 0.3 + height)
-			end
+		local style = companionStyle(entry)
+		local lift = entry.anchor.Size.Y * 0.5 + 0.85
+		local visual = entry.visualModel or entry.model
+		local head = visual:FindFirstChild("Head", true)
+		if head and head:IsA("BasePart") then
+			lift = math.max(lift, head.Position.Y + head.Size.Y * 0.5
+				- entry.anchor.Position.Y + 0.65)
 		end
-		entry.gui.StudsOffsetWorldSpace = Vector3.new(0, lift, 0)
+		local ok, boundsCFrame, boundsSize = pcall(function()
+			return visual:GetBoundingBox()
+		end)
+		if ok then
+			lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5
+				- entry.anchor.Position.Y + 0.3)
+		end
+		local mode = style and style.mode or entry == entries.clone
+			and cloneTitleMode ~= "follow" and cloneTitleMode or titleMode
+		local role = style and style.role or entry == entries.clone
+			and cloneRoleMode ~= "follow" and cloneRoleMode or roleMode
+		local stacked = mode == "display" and role ~= "off"
+		entry.gui.StudsOffsetWorldSpace = Vector3.new(0,
+			lift + (style and style.height or height) + (stacked and 0.2 or 0), 0)
 	end
 
-	function feature:Attach(model, key)
+	local function updateStyle(entry)
+		local style = companionStyle(entry)
+		local mode = style and style.mode or entry == entries.clone
+			and cloneTitleMode ~= "follow" and cloneTitleMode or titleMode
+		local role = style and style.role or entry == entries.clone
+			and cloneRoleMode ~= "follow" and cloneRoleMode or roleMode
+		local chosenColor = style and style.color or colorKey
+		local chosenSize = style and style.size or size
+		local isDisplay = mode == "display"
+		local stacked = isDisplay and role ~= "off"
+		local shownName = entry.displayName or displayText
+		entry.label.Text = isDisplay and (shownName ~= "" and shownName or "Display Name")
+			or mode == "creator" and "Creator" or "Developer"
+		entry.label.Font = isDisplay and Enum.Font.GothamSemibold or Enum.Font.GothamBlack
+		entry.label.TextColor3 = isDisplay and Color3.fromRGB(246, 248, 255)
+			or palette[chosenColor].text
+		entry.label.TextStrokeTransparency = isDisplay and 0.72 or 0.2
+		entry.gradient.Enabled = not isDisplay
+		entry.gradient.Color = textGradient(chosenColor)
+		entry.plate.BackgroundColor3 = palette[chosenColor].surface
+		entry.stroke.Color = palette[chosenColor].accent
+		entry.gui.Size = UDim2.fromScale(3.2 * chosenSize, (stacked and 1.04 or 0.64) * chosenSize)
+		local labelY = stacked and 0.43 or 0
+		local labelHeight = stacked and 0.57 or 1
+		if isDisplay then
+			local measured = TextService:GetTextSize(entry.label.Text, 100, entry.label.Font,
+				Vector2.new(2000, 150))
+			local labelWidth = math.clamp(measured.X / 100
+				* (stacked and 1.04 or 0.64) / 3.2 * labelHeight, 0.13, 0.72)
+			local groupWidth = labelWidth + 0.012 + 0.13
+			local left = (1 - groupWidth) * 0.5
+			entry.label.Position = UDim2.fromScale(left, labelY)
+			entry.label.Size = UDim2.fromScale(labelWidth, labelHeight)
+			entry.badge.Position = UDim2.fromScale(left + labelWidth + 0.012,
+				stacked and 0.52 or 0.15)
+		else
+			entry.label.Position = UDim2.fromScale(0.05, labelY)
+			entry.label.Size = UDim2.fromScale(0.72, labelHeight)
+			entry.badge.Position = UDim2.fromScale(0.82, stacked and 0.52 or 0.15)
+		end
+		entry.badge.Size = UDim2.fromScale(0.13, stacked and 0.40 or 0.70)
+		entry.roleLabel.Visible = stacked
+		entry.roleGradient.Enabled = stacked
+		if isDisplay then
+			if entry.shineTween then entry.shineTween:Cancel() end
+			if stacked then
+				entry.roleLabel.Text = "[" .. role:upper() .. "]"
+				entry.roleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+				entry.roleGradient.Color = roleGradient(role, style)
+				playRoleShine(entry)
+			elseif entry.roleTween then entry.roleTween:Cancel() end
+		else
+			if entry.roleTween then entry.roleTween:Cancel() end
+			playShine(entry)
+		end
+		updateHeight(entry)
+	end
+	local function entryEnabled(key)
+		local style = companionStyles[key]
+		if style then return style.mode ~= "off" end
+		if key == "clone" and cloneTitleMode ~= "follow" then return cloneTitleMode ~= "off" end
+		return enabled
+	end
+
+	function feature:Attach(model, key, visualModel, nameOverride)
 		if destroyed then
 			return nil
 		end
@@ -150,6 +313,10 @@ local function createDeveloperNameplate(api)
 		end
 		local old = entries[key]
 		if old and old.model == model and old.anchor == anchor and old.gui.Parent == anchor then
+			old.visualModel = visualModel
+			old.displayName = nameOverride
+			updateHeight(old)
+			updateStyle(old)
 			return old.gui
 		end
 		remove(key)
@@ -161,7 +328,7 @@ local function createDeveloperNameplate(api)
 		gui.LightInfluence = 0
 		gui.MaxDistance = 90
 		gui.Size = UDim2.fromScale(3.2 * size, 0.64 * size)
-		gui.Enabled = enabled
+		gui.Enabled = entryEnabled(key)
 
 		local plate = Instance.new("Frame")
 		plate.Name = "Plate"
@@ -198,17 +365,38 @@ local function createDeveloperNameplate(api)
 		gradient.Rotation = 16
 		gradient.Parent = label
 
-		makeCheck(gui)
+		local roleLabel = Instance.new("TextLabel")
+		roleLabel.Name = "RoleText"
+		roleLabel.BackgroundTransparency = 1
+		roleLabel.Font = Enum.Font.GothamBlack
+		roleLabel.TextScaled = true
+		local roleSizeLimit = Instance.new("UITextSizeConstraint")
+		roleSizeLimit.MinTextSize = 10
+		roleSizeLimit.MaxTextSize = 14
+		roleSizeLimit.Parent = roleLabel
+		roleLabel.TextXAlignment = Enum.TextXAlignment.Center
+		roleLabel.TextStrokeColor3 = Color3.fromRGB(10, 3, 5)
+		roleLabel.TextStrokeTransparency = 0
+		roleLabel.Position = UDim2.fromScale(0.22, 0)
+		roleLabel.Size = UDim2.fromScale(0.56, 0.40)
+		roleLabel.Visible = false
+		roleLabel.Parent = plate
+		local roleShine = Instance.new("UIGradient")
+		roleShine.Name = "RoleShine"
+		roleShine.Rotation = 16
+		roleShine.Parent = roleLabel
+		local badge = makeCheck(gui)
 		gui.Parent = anchor
 
-		local entry = { model = model, anchor = anchor, isHead = isHead, gui = gui, stroke = stroke,
-			plate = plate, label = label, gradient = gradient }
+		local entry = { key = key, model = model, visualModel = visualModel, displayName = nameOverride, anchor = anchor, isHead = isHead, gui = gui, stroke = stroke,
+			plate = plate, label = label, gradient = gradient, badge = badge,
+			roleLabel = roleLabel, roleGradient = roleShine }
 		entries[key] = entry
 		updateHeight(entry)
 		entry.destroying = model.Destroying:Connect(function()
 			remove(key)
 		end)
-		playShine(entry)
+		updateStyle(entry)
 		return gui
 	end
 
@@ -222,8 +410,49 @@ local function createDeveloperNameplate(api)
 			return
 		end
 		enabled = value
-		for _, entry in pairs(entries) do
-			entry.gui.Enabled = value
+		for key, entry in pairs(entries) do
+			entry.gui.Enabled = entryEnabled(key)
+		end
+	end
+
+	function feature:SetCloneStyle(mode, role)
+		assert(mode == "follow" or mode == "off" or mode == "developer"
+			or mode == "creator" or mode == "display", "Invalid clone title mode")
+		assert(role == "follow" or role == "off" or role == "owner"
+			or role == "admin" or role == "developer", "Invalid clone role")
+		if destroyed then return end
+		cloneTitleMode, cloneRoleMode = mode, role
+		if entries.clone then
+			entries.clone.gui.Enabled = entryEnabled("clone")
+			updateStyle(entries.clone)
+		end
+	end
+
+	function feature:SetCompanionStyle(index, style)
+		assert(index == 1 or index == 2, "Companion index must be 1 or 2")
+		assert(type(style) == "table" and (style.mode == "off" or style.mode == "developer"
+			or style.mode == "creator" or style.mode == "display"), "Invalid companion title")
+		assert(style.role == "off" or style.role == "owner" or style.role == "admin"
+			or style.role == "developer", "Invalid companion role")
+		assert(palette[style.color] and palette[style.roleColor]
+			and roleShinePalette[style.ownerShine]
+			and roleShinePalette[style.adminShine]
+			and roleShinePalette[style.developerShine], "Invalid companion colors")
+		assert(style.direction == "left" or style.direction == "right", "Invalid shine direction")
+		assert(type(style.height) == "number" and type(style.size) == "number", "Invalid companion size")
+		if destroyed then return end
+		local key = "friend" .. index
+		companionStyles[key] = {
+			mode = style.mode, role = style.role, color = style.color,
+			roleColor = style.roleColor,
+			ownerShine = style.ownerShine, adminShine = style.adminShine,
+			developerShine = style.developerShine,
+			direction = style.direction, height = math.clamp(style.height, 0, 3),
+			size = math.clamp(style.size, 0.7, 1.6),
+		}
+		if entries[key] then
+			entries[key].gui.Enabled = entryEnabled(key)
+			updateStyle(entries[key])
 		end
 	end
 
@@ -236,8 +465,47 @@ local function createDeveloperNameplate(api)
 		for _, entry in pairs(entries) do
 			entry.plate.BackgroundColor3 = palette[colorKey].surface
 			entry.stroke.Color = palette[colorKey].accent
-			entry.label.TextColor3 = palette[colorKey].text
-			entry.gradient.Color = textGradient(colorKey)
+			updateStyle(entry)
+		end
+	end
+
+	function feature:SetMode(value)
+		assert(value == "developer" or value == "creator" or value == "display",
+			"SetMode expects developer, creator, or display")
+		if destroyed then return end
+		titleMode = value
+		for _, entry in pairs(entries) do updateStyle(entry) end
+	end
+
+	function feature:SetRole(value)
+		assert(value == "off" or value == "owner" or value == "admin"
+			or value == "developer", "SetRole expects off, owner, admin, or developer")
+		if destroyed then return end
+		roleMode = value
+		for _, entry in pairs(entries) do updateStyle(entry) end
+	end
+
+	function feature:SetRoleShineColor(role, value)
+		assert(role == "owner" or role == "admin" or role == "developer",
+			"SetRoleShineColor expects owner, admin, or developer")
+		assert(roleShinePalette[value] ~= nil, "SetRoleShineColor expects white, yellow, or red")
+		if destroyed then return end
+		roleShineColor[role] = value
+		for _, entry in pairs(entries) do updateStyle(entry) end
+	end
+
+	function feature:SetRoleColor(role, value)
+		assert(roleColorKey[role] and palette[value], "SetRoleColor expects a role and color")
+		if destroyed then return end
+		roleColorKey[role] = value
+		for _, entry in pairs(entries) do updateStyle(entry) end
+	end
+
+	function feature:SetDisplayText(value)
+		if destroyed then return end
+		displayText = type(value) == "string" and value:sub(1, 40) or ""
+		if titleMode == "display" then
+			for _, entry in pairs(entries) do updateStyle(entry) end
 		end
 	end
 
@@ -245,7 +513,7 @@ local function createDeveloperNameplate(api)
 		assert(direction == "right" or direction == "left", "Shine direction must be right or left")
 		if destroyed or shineDirection == direction then return end
 		shineDirection = direction
-		for _, entry in pairs(entries) do playShine(entry) end
+		for _, entry in pairs(entries) do updateStyle(entry) end
 	end
 
 	function feature:SetHeight(value)
@@ -259,9 +527,7 @@ local function createDeveloperNameplate(api)
 		assert(type(value) == "number", "SetSize requires a number")
 		if destroyed then return end
 		size = math.clamp(value, 0.7, 1.6)
-		for _, entry in pairs(entries) do
-			entry.gui.Size = UDim2.fromScale(3.2 * size, 0.64 * size)
-		end
+		for _, entry in pairs(entries) do updateStyle(entry) end
 	end
 
 	function feature:Destroy()
@@ -279,8 +545,17 @@ end
 
 local function createVisualizerSettings(api)
     local file="THT_Item_Visualizer_"..tostring(api.placeId)..".json"
+    local function companionDefaults()
+        return {mode="display",role="off",color="blue",roleColor="red",ownerShine="white",
+            adminShine="white",developerShine="white",direction="right",height=0.75,size=1}
+    end
     local data={version=1,hideRoom=true,username="",avatar="",weapon="",
-        pack="",moon=false,developer=false,developerColor="blue",
+        pack="",moon=false,developer=false,developerMode="developer",developerColor="blue",
+        developerRole="off",developerRoleColors={owner="red",admin="red",developer="red"},
+        developerOwnerShine="white",developerAdminShine="white",
+        developerDeveloperShine="white",
+        cloneTitleMode="follow",cloneRole="follow",
+        companionTitles={companionDefaults(),companionDefaults()},
         developerShineDirection="right",developerHeight=0.75,developerSize=1,
         page="avatar",collapsed=false}
     local disk=type(api.readfile)=="function" and type(api.writefile)=="function"
@@ -303,8 +578,66 @@ local function createVisualizerSettings(api)
             if value.pack=="community" or value.pack=="aura" then data.pack=value.pack end
             if type(value.moon)=="boolean" then data.moon=value.moon end
             if type(value.developer)=="boolean" then data.developer=value.developer end
+            if value.developerMode=="developer" or value.developerMode=="creator"
+                or value.developerMode=="display" then data.developerMode=value.developerMode end
+            if value.developerRole=="off" or value.developerRole=="owner"
+                or value.developerRole=="admin" or value.developerRole=="developer" then
+                data.developerRole=value.developerRole end
+            if value.cloneTitleMode=="follow" or value.cloneTitleMode=="off"
+                or value.cloneTitleMode=="developer" or value.cloneTitleMode=="creator"
+                or value.cloneTitleMode=="display" then data.cloneTitleMode=value.cloneTitleMode end
+            if value.cloneRole=="follow" or value.cloneRole=="off"
+                or value.cloneRole=="owner" or value.cloneRole=="admin"
+                or value.cloneRole=="developer" then data.cloneRole=value.cloneRole end
+            if type(value.companionTitles)=="table" then
+                for index=1,2 do
+                    local saved=value.companionTitles[index]
+                    if type(saved)=="table" then
+                        local style=data.companionTitles[index]
+                        if saved.mode=="off" or saved.mode=="developer" or saved.mode=="creator"
+                            or saved.mode=="display" then style.mode=saved.mode end
+                        if saved.role=="off" or saved.role=="owner" or saved.role=="admin"
+                            or saved.role=="developer" then style.role=saved.role end
+                        if saved.color=="blue" or saved.color=="sky" or saved.color=="red"
+                            or saved.color=="yellow" then style.color=saved.color end
+                        if saved.roleColor=="blue" or saved.roleColor=="sky"
+                            or saved.roleColor=="red" or saved.roleColor=="yellow" then
+                            style.roleColor=saved.roleColor end
+                        for _,field in ipairs({"ownerShine","adminShine","developerShine"}) do
+                            if saved[field]=="white" or saved[field]=="yellow" or saved[field]=="red" then
+                                style[field]=saved[field]
+                            end
+                        end
+                        if saved.direction=="right" or saved.direction=="left" then
+                            style.direction=saved.direction end
+                        if type(saved.height)=="number" and saved.height==saved.height then
+                            style.height=math.clamp(saved.height,0,3) end
+                        if type(saved.size)=="number" and saved.size==saved.size then
+                            style.size=math.clamp(saved.size,0.7,1.6) end
+                    end
+                end
+            end
+            if value.developerRoleShine=="white" or value.developerRoleShine=="yellow"
+                or value.developerRoleShine=="red" then
+                data.developerOwnerShine=value.developerRoleShine
+                data.developerAdminShine=value.developerRoleShine
+            end
+            for _,entry in ipairs({{"developerOwnerShine","owner"},
+                {"developerAdminShine","admin"},{"developerDeveloperShine","developer"}}) do
+                local selected=value[entry[1]]
+                if selected=="white" or selected=="yellow" or selected=="red" then
+                    data[entry[1]]=selected
+                end
+            end
             if value.developerColor=="blue" or value.developerColor=="sky" or value.developerColor=="red"
                 or value.developerColor=="yellow" then data.developerColor=value.developerColor end
+            if type(value.developerRoleColors)=="table" then
+                for _,role in ipairs({"owner","admin","developer"}) do
+                    local selected=value.developerRoleColors[role]
+                    if selected=="blue" or selected=="sky" or selected=="red"
+                        or selected=="yellow" then data.developerRoleColors[role]=selected end
+                end
+            end
             if value.developerShineDirection=="right" or value.developerShineDirection=="left" then
                 data.developerShineDirection=value.developerShineDirection end
             if type(value.developerHeight)=="number" and value.developerHeight==value.developerHeight then
@@ -440,12 +773,12 @@ for index,entry in ipairs({{"avatar","AVATAR"},{"weapons","VŨ KHÍ"},{"effects"
     if id=="effects" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
         page.ScrollBarImageColor3=Color3.fromRGB(124,103,199)
-        page.CanvasSize=UDim2.fromOffset(0,785)
+        page.CanvasSize=UDim2.fromOffset(0,1010)
         page.ScrollingDirection=Enum.ScrollingDirection.Y
     elseif id=="clone" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
         page.ScrollBarImageColor3=Color3.fromRGB(124,103,199)
-        page.CanvasSize=UDim2.fromOffset(0,660)
+        page.CanvasSize=UDim2.fromOffset(0,820)
         page.ScrollingDirection=Enum.ScrollingDirection.Y
     end
     on(tab.MouseButton1Click,function()
@@ -502,36 +835,66 @@ makeText(moonCard,"MOONBLOOM TRAIL",12,9,310,21,12,theme.text)
 local moonButton=makeButton(moonCard,"Moonbloom Trail: TẮT",12,43,316,31,Color3.fromRGB(69,58,94))
 makeText(effectsPage,"Bấm lại gói đang chọn để tắt.",0,365,340,20,11,theme.muted)
 section(effectsPage,"DANH HIỆU NHÂN VẬT",396)
-local developerCard=surface(effectsPage,423,338)
-makeText(developerCard,"Developer  •  tích xanh",12,9,316,21,12,theme.text)
-local developerToggle=makeButton(developerCard,"Developer: TẮT",12,37,316,32,Color3.fromRGB(69,58,94))
+local developerCard=surface(effectsPage,423,619)
+makeText(developerCard,"Danh hiệu / tên hiển thị  •  tích xanh",12,9,316,21,12,theme.text)
+local developerToggle=makeButton(developerCard,"Danh hiệu: TẮT",12,37,316,32,Color3.fromRGB(69,58,94))
+developerToggle.Name="DeveloperToggle"
+local titleModeButtons={}
+for index,entry in ipairs({{"developer","Developer"},{"creator","Creator"},
+    {"display","Tên hiển thị"}}) do
+    local button=makeButton(developerCard,entry[2],12+(index-1)*107,78,102,31,theme.card)
+    button.Name="TitleMode_"..entry[1]
+    button.TextSize=11
+    titleModeButtons[entry[1]]=button
+end
+makeText(developerCard,"VAI TRÒ TRÊN TÊN HIỂN THỊ",12,116,316,18,10,theme.muted)
+local roleButtons={}
+for index,entry in ipairs({{"off","KHÔNG"},{"owner","OWNER"},
+    {"admin","ADMIN"},{"developer","DEVELOPER"}}) do
+    local button=makeButton(developerCard,entry[2],12+(index-1)*79,138,73,30,theme.card)
+    button.Name="RoleMode_"..entry[1]
+    button.TextSize=entry[1]=="developer" and 9 or 10
+    roleButtons[entry[1]]=button
+end
+local developerColorCaption=makeText(developerCard,"MÀU DANH HIỆU",12,172,316,18,10,theme.muted)
 local developerColors={}
 for index,entry in ipairs({{"blue","XANH ĐẬM",Color3.fromRGB(0,140,235)},
     {"sky","XANH TRỜI",Color3.fromRGB(79,190,255)},
     {"red","ĐỎ",Color3.fromRGB(231,72,83)},
     {"yellow","VÀNG",Color3.fromRGB(239,181,54)}}) do
-    local button=makeButton(developerCard,entry[2],12+(index-1)*79,79,73,31,entry[3])
+    local button=makeButton(developerCard,entry[2],12+(index-1)*79,194,73,31,entry[3])
     button.TextSize=9
     if entry[1]=="sky" or entry[1]=="yellow" then
         button.TextColor3=Color3.fromRGB(24,30,42)
     end
     developerColors[entry[1]]=button
 end
-makeText(developerCard,"HƯỚNG VỆT SÁNG",12,121,316,18,10,theme.muted)
-local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,145,152,31,theme.card)
-local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,145,152,31,theme.card)
+local roleShineButtons={owner={},admin={},developer={}}
+for roleIndex,role in ipairs({"owner","admin","developer"}) do
+    local y=233+(roleIndex-1)*59
+    makeText(developerCard,"VỆT SÁNG "..role:upper(),12,y,316,18,10,theme.muted)
+    for index,entry in ipairs({{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}}) do
+        local button=makeButton(developerCard,entry[2],12+(index-1)*107,y+21,102,30,theme.card)
+        button.Name="RoleShine_"..role.."_"..entry[1]
+        button.TextSize=11
+        roleShineButtons[role][entry[1]]=button
+    end
+end
+makeText(developerCard,"HƯỚNG VỆT SÁNG",12,410,316,18,10,theme.muted)
+local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,431,152,31,theme.card)
+local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,431,152,31,theme.card)
 shineRightButton.TextSize=11; shineLeftButton.TextSize=11
-makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,188,316,18,10,theme.muted)
-local heightDownButton=makeButton(developerCard,"−",12,211,69,32,theme.card)
-local heightValue=makeText(developerCard,"",91,213,155,27,13,theme.text)
+makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,471,316,18,10,theme.muted)
+local heightDownButton=makeButton(developerCard,"−",12,493,69,32,theme.card)
+local heightValue=makeText(developerCard,"",91,495,155,27,13,theme.text)
 heightValue.TextXAlignment=Enum.TextXAlignment.Center
-local heightUpButton=makeButton(developerCard,"+",258,211,70,32,theme.card)
-makeText(developerCard,"CỠ CHỮ",12,250,316,18,10,theme.muted)
-local sizeDownButton=makeButton(developerCard,"−",12,273,69,32,theme.card)
-local sizeValue=makeText(developerCard,"",91,275,155,27,13,theme.text)
+local heightUpButton=makeButton(developerCard,"+",258,493,70,32,theme.card)
+makeText(developerCard,"CỠ CHỮ",12,532,316,18,10,theme.muted)
+local sizeDownButton=makeButton(developerCard,"−",12,554,69,32,theme.card)
+local sizeValue=makeText(developerCard,"",91,556,155,27,13,theme.text)
 sizeValue.TextXAlignment=Enum.TextXAlignment.Center
-local sizeUpButton=makeButton(developerCard,"+",258,273,70,32,theme.card)
-makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,315,316,18,10,theme.muted)
+local sizeUpButton=makeButton(developerCard,"+",258,554,70,32,theme.card)
+makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,594,316,18,10,theme.muted)
 local woodButton=makeButton(weaponPage,"Gậy gỗ / hình gốc",0,364,340,30,theme.card)
 local statusBar=Instance.new("Frame"); statusBar.Name="StatusBar"
 statusBar.BackgroundColor3=Color3.fromRGB(27,29,40); statusBar.BorderSizePixel=0
@@ -560,7 +923,21 @@ developerNameplate:SetColor(settings.developerColor)
 developerNameplate:SetShineDirection(settings.developerShineDirection)
 developerNameplate:SetHeight(settings.developerHeight)
 developerNameplate:SetSize(settings.developerSize)
+developerNameplate:SetMode(settings.developerMode)
+developerNameplate:SetRole(settings.developerRole)
+developerNameplate:SetRoleShineColor("owner",settings.developerOwnerShine)
+developerNameplate:SetRoleShineColor("admin",settings.developerAdminShine)
+developerNameplate:SetRoleShineColor("developer",settings.developerDeveloperShine)
+for _,role in ipairs({"owner","admin","developer"}) do
+    developerNameplate:SetRoleColor(role,settings.developerRoleColors[role])
+end
+developerNameplate:SetCloneStyle("follow","follow")
+for index=1,2 do
+    developerNameplate:SetCompanionStyle(index,settings.companionTitles[index])
+end
 developerNameplate:SetEnabled(settings.developer)
+local appliedDisplayName=localPlayer.DisplayName
+developerNameplate:SetDisplayText(appliedDisplayName)
 local hiddenNameHumanoids={}
 local function restoreDefaultNames()
     for humanoid,displayType in pairs(hiddenNameHumanoids) do
@@ -578,20 +955,65 @@ end
 local function refreshDeveloperReal()
     local camera=game:GetService("Workspace").CurrentCamera
     local display=camera and camera:FindFirstChild("GiftPlayerV8BodyDisplay")
-    local model=display and display:IsA("Model") and display:FindFirstChild("Head")
-        and display or localPlayer.Character
-    if model then developerNameplate:Attach(model,"real")
+    local character=localPlayer.Character
+    local visual=display and display:IsA("Model") and display:FindFirstChild("Head")
+        and display or nil
+    local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+    local shownName=state.originalAppearance and appliedDisplayName
+        or humanoid and humanoid.DisplayName ~= "" and humanoid.DisplayName
+        or localPlayer.DisplayName
+    developerNameplate:SetDisplayText(shownName)
+    if character then developerNameplate:Attach(character,"real",visual,shownName)
     else developerNameplate:Detach("real") end
     restoreDefaultNames()
     if settings.developer then
-        hideDefaultName(localPlayer.Character)
-        hideDefaultName(model)
+        hideDefaultName(character)
+        hideDefaultName(visual)
     end
 end
-state.SetDeveloperCloneModel=function(model)
-    if model then developerNameplate:Attach(model,"clone")
+state.SetDeveloperCloneModel=function(model, shownName)
+    if model then developerNameplate:Attach(model,"clone",nil,shownName)
     else developerNameplate:Detach("clone") end
 end
+state.SetDeveloperCloneStyle=function(mode,role)
+    settings.cloneTitleMode=mode
+    settings.cloneRole=role
+    developerNameplate:SetCloneStyle(mode,role)
+    persistSettings()
+end
+state.GetDeveloperCloneStyle=function()
+    return settings.cloneTitleMode,settings.cloneRole
+end
+state.SetDeveloperCompanionModel=function(index,model,shownName)
+    local key="friend"..tostring(index)
+    if model then developerNameplate:Attach(model,key,nil,shownName)
+    else developerNameplate:Detach(key) end
+end
+state.GetDeveloperCompanionStyle=function(index)
+    return settings.companionTitles[index]
+end
+state.SetDeveloperCompanionStyle=function(index,style)
+    if index~=1 and index~=2 then return end
+    developerNameplate:SetCompanionStyle(index,style)
+    settings.companionTitles[index]=style
+    persistSettings()
+end
+local function watchRealDisplayName(character)
+    local humanoid=character and (character:FindFirstChildOfClass("Humanoid")
+        or character:WaitForChild("Humanoid",5))
+    if not humanoid then return end
+    on(humanoid:GetPropertyChangedSignal("DisplayName"),function()
+        if state.alive and localPlayer.Character==character
+            and not state.originalAppearance then refreshDeveloperReal() end
+    end)
+end
+if localPlayer.Character then task.spawn(watchRealDisplayName,localPlayer.Character) end
+on(localPlayer:GetPropertyChangedSignal("DisplayName"),function()
+    if not state.originalAppearance then
+        appliedDisplayName=localPlayer.DisplayName
+        refreshDeveloperReal()
+    end
+end)
 local developerColorStrokes={}
 local developerColorLabels={blue="XANH ĐẬM",sky="XANH TRỜI",red="ĐỎ",yellow="VÀNG"}
 for key,button in pairs(developerColors) do
@@ -602,11 +1024,33 @@ for key,button in pairs(developerColors) do
     developerColorStrokes[key]=stroke
 end
 local function paintDeveloperControls()
-    developerToggle.Text=settings.developer and "Developer: BẬT" or "Developer: TẮT"
+    local names={developer="Developer",creator="Creator",display="Tên hiển thị"}
+    developerToggle.Text=(names[settings.developerMode] or "Danh hiệu")
+        ..(settings.developer and ": BẬT" or ": TẮT")
     developerToggle.BackgroundColor3=settings.developer
         and Color3.fromRGB(57,161,112) or Color3.fromRGB(69,58,94)
+    for key,button in pairs(titleModeButtons) do
+        button.BackgroundColor3=settings.developerMode==key and theme.purple or theme.card
+    end
+    for key,button in pairs(roleButtons) do
+        button.BackgroundColor3=settings.developerRole==key and theme.purple or theme.card
+    end
+    for role,group in pairs(roleShineButtons) do
+        local selected=role=="owner" and settings.developerOwnerShine
+            or role=="admin" and settings.developerAdminShine
+            or settings.developerDeveloperShine
+        for key,button in pairs(group) do
+            button.BackgroundColor3=selected==key and theme.purple or theme.card
+        end
+    end
+    local activeRole=settings.developerMode=="display" and settings.developerRole~="off"
+        and settings.developerRole or nil
+    developerColorCaption.Text=activeRole and "MÀU VAI TRÒ "..activeRole:upper()
+        or "MÀU DANH HIỆU"
+    local activeColor=activeRole and settings.developerRoleColors[activeRole]
+        or settings.developerColor
     for key,button in pairs(developerColors) do
-        local selected=settings.developerColor==key
+        local selected=activeColor==key
         button.Text=(selected and "✓ " or "")..developerColorLabels[key]
         local stroke=developerColorStrokes[key]
         stroke.Thickness=selected and 2 or 1
@@ -628,14 +1072,52 @@ on(developerToggle.MouseButton1Click,function()
     developerNameplate:SetEnabled(settings.developer)
     refreshDeveloperReal()
     paintDeveloperControls(); persistSettings()
-    setStatus(settings.developer and "Đã bật danh hiệu Developer cục bộ" or "Đã tắt danh hiệu Developer")
+    setStatus(settings.developer and "Đã bật danh hiệu cục bộ" or "Đã tắt danh hiệu")
 end)
+for key,button in pairs(titleModeButtons) do
+    on(button.MouseButton1Click,function()
+        settings.developerMode=key
+        developerNameplate:SetMode(key)
+        refreshDeveloperReal()
+        paintDeveloperControls(); persistSettings()
+        setStatus(key=="display" and "Đang hiện Display Name cục bộ"
+            or "Đã chọn danh hiệu "..(key=="creator" and "Creator" or "Developer"))
+    end)
+end
+for key,button in pairs(roleButtons) do
+    on(button.MouseButton1Click,function()
+        settings.developerRole=key
+        developerNameplate:SetRole(key)
+        paintDeveloperControls(); persistSettings()
+        setStatus(key=="off" and "Đã tắt nhãn vai trò" or "Đã chọn nhãn "..key:upper().." trên tên hiển thị")
+    end)
+end
+for role,group in pairs(roleShineButtons) do
+    for key,button in pairs(group) do
+        on(button.MouseButton1Click,function()
+            if role=="owner" then settings.developerOwnerShine=key
+            elseif role=="admin" then settings.developerAdminShine=key
+            else settings.developerDeveloperShine=key end
+            developerNameplate:SetRoleShineColor(role,key)
+            paintDeveloperControls(); persistSettings()
+            setStatus("Đã chọn vệt sáng "..role:upper().." màu "..key)
+        end)
+    end
+end
 for key,button in pairs(developerColors) do
     on(button.MouseButton1Click,function()
-        settings.developerColor=key
-        developerNameplate:SetColor(key)
+        local activeRole=settings.developerMode=="display" and settings.developerRole~="off"
+            and settings.developerRole or nil
+        if activeRole then
+            settings.developerRoleColors[activeRole]=key
+            developerNameplate:SetRoleColor(activeRole,key)
+        else
+            settings.developerColor=key
+            developerNameplate:SetColor(key)
+        end
         paintDeveloperControls(); persistSettings()
-        setStatus("Đã chọn màu Developer: "..developerColorLabels[key])
+        setStatus("Đã chọn màu "..(activeRole and activeRole:upper() or "danh hiệu")
+            ..": "..developerColorLabels[key])
     end)
 end
 on(shineRightButton.MouseButton1Click,function()
@@ -652,7 +1134,7 @@ local function changeDeveloperHeight(delta)
     settings.developerHeight=math.clamp(math.floor((settings.developerHeight+delta)*4+0.5)/4,0,3)
     developerNameplate:SetHeight(settings.developerHeight)
     paintDeveloperControls(); persistSettings()
-    setStatus(string.format("Độ cao Developer: +%.2f studs",settings.developerHeight))
+    setStatus(string.format("Độ cao danh hiệu: +%.2f studs",settings.developerHeight))
 end
 on(heightDownButton.MouseButton1Click,function() changeDeveloperHeight(-0.25) end)
 on(heightUpButton.MouseButton1Click,function() changeDeveloperHeight(0.25) end)
@@ -660,7 +1142,7 @@ local function changeDeveloperSize(delta)
     settings.developerSize=math.clamp(math.floor((settings.developerSize+delta)*10+0.5)/10,0.7,1.6)
     developerNameplate:SetSize(settings.developerSize)
     paintDeveloperControls(); persistSettings()
-    setStatus(string.format("Cỡ chữ Developer: %d%%",math.floor(settings.developerSize*100+0.5)))
+    setStatus(string.format("Cỡ chữ danh hiệu: %d%%",math.floor(settings.developerSize*100+0.5)))
 end
 on(sizeDownButton.MouseButton1Click,function() changeDeveloperSize(-0.1) end)
 on(sizeUpButton.MouseButton1Click,function() changeDeveloperSize(0.1) end)
@@ -927,24 +1409,11 @@ local function createV8Additions(api)
         api.onToggle(false, false)
     end
 
-    local function resolve(id)
-        if cache[id] then return cache[id] end
-        local objects = api.getObjects("rbxassetid://" .. tostring(id))
-        local clip
-        for _, object in ipairs(objects) do
-            if object:IsA("Animation") and object.AnimationId ~= "" then
-                clip = clip or object.AnimationId
-            end
-            for _, child in ipairs(object:GetDescendants()) do
-                if child:IsA("Animation") and child.AnimationId ~= "" then
-                    clip = clip or child.AnimationId
-                end
-            end
-            destroy(object)
-        end
-        if not clip then error("Không lấy được clip adidas " .. tostring(id)) end
-        cache[id] = clip
-        return clip
+    local function resolvePack(packKey)
+        if cache[packKey] then return cache[packKey] end
+        local clips = resolveCatalogMotionPack(packs[packKey].assets, poses)
+        cache[packKey] = clips
+        return clips
     end
 
     function extras:Enable(packKey)
@@ -985,11 +1454,11 @@ local function createV8Additions(api)
         end
         api.task.spawn(function()
             local ok, problem = pcall(function()
+                local resolved = resolvePack(packKey)
                 for _, pose in ipairs(poses) do
-                    local clip = resolve(pack.assets[pose])
                     if not valid() then return end
                     local animation = api.Instance.new("Animation")
-                    animation.AnimationId = clip
+                    animation.AnimationId = resolved[pose]
                     local loaded, track = pcall(function() return animator:LoadAnimation(animation) end)
                     if not loaded then destroy(animation); error(track) end
                     if not valid() then destroy(track); destroy(animation); return end
@@ -1613,6 +2082,7 @@ local function createV8BodyDisplay(api)
                 entry[1].CFrame = root.CFrame * entry[2]
             end
         end
+        body.sync = sync
         sync(true)
         local lowestFoot, lowestBody
         for _, part in ipairs(model:GetChildren()) do
@@ -1966,6 +2436,7 @@ local function createRoomBodyDisplay(api)
                 entry[1].CFrame = root.CFrame * entry[2]
             end
         end
+        body.sync = sync
         sync(true)
         local lowestFoot, lowestBody
         for _, part in ipairs(model:GetChildren()) do
@@ -2713,19 +3184,17 @@ end
         local originalPivot = self.handle.CFrame * (self.tool.Grip or identity)
         local pivot = originalPivot
         if api.getVisualHandOffset then
-            local offset,scale,shownGrip,_,body=api.getVisualHandOffset(character)
-            if offset then pivot=pivot+offset end
-            if body~=self.handBody then
-                self.handBody,self.handLocalPivot=body,nil
-            end
-            if scale and scale<.85 and shownGrip then
-                local humanoid=character:FindFirstChildOfClass("Humanoid")
-                local moving=humanoid and humanoid.MoveDirection.Magnitude>.05
-                if not moving then
-                    self.handLocalPivot=shownGrip:Inverse()*pivot
-                elseif self.handLocalPivot then
-                    pivot=shownGrip*self.handLocalPivot
+            local offset,scale,shownGrip,realGrip=api.getVisualHandOffset(character)
+            if shownGrip and realGrip then
+                -- Preserve the tool's full hand-relative frame. A position-only
+                -- offset leaves weapons behind small or rotated 3D avatars.
+                local relative=realGrip:ToObjectSpace(originalPivot)
+                if scale and scale<.85 then
+                    relative=api.CFrame.new(relative.Position*scale)*relative.Rotation
                 end
+                pivot=shownGrip*relative
+            elseif offset then
+                pivot=pivot+offset
             end
         end
         for _,entry in ipairs(prepared.parts) do entry.part.CFrame=pivot*entry.offset end
@@ -3986,6 +4455,7 @@ local function visualWeaponHandOffset(api,snapshot,character)
     local body=snapshot and snapshot.character==character and snapshot.bodyDisplay
     local model=body and body.model
     if not model or not model.Parent then return nil end
+    if type(body.sync)=="function" then pcall(body.sync) end
     local shown=model:FindFirstChild("RightHand") or model:FindFirstChild("Right Arm")
     local real=character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
     if not shown or not real or not shown:IsA("BasePart") or not real:IsA("BasePart") then return nil end
@@ -4053,7 +4523,6 @@ local extras = createV8Additions({
     Instance = Instance, CFrame = CFrame, Enum = Enum, player = localPlayer,
     RunService = RunService, task = task, clock = os.clock,
     getCloneMotion = function() return state.CloneMotion end,
-    getObjects = function(id) return game:GetObjects(id) end,
     isActive = function() return state.alive end,
     onStatus = setStatus,
     onToggle = function(enabled, busy, active, pending)
@@ -4180,7 +4649,7 @@ local function cloneAccessory(source, sourceModel, character)
     return clone
 end
 
-local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetData)
+local function applyCosmetics(sourceModel, snapshot, displayName, faceHead, targetData)
     local character = snapshot.character
     local humanoid = snapshot.humanoid
     local head = character:FindFirstChild("Head")
@@ -4205,7 +4674,7 @@ local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetD
         local display = (targetData.fromLive or hasClassicClothing)
             and roomBodyDisplay or bodyDisplay
         display:Apply(sourceModel, snapshot, targetData)
-        humanoid.DisplayName = username
+        humanoid.DisplayName = displayName
         return
     end
     for _, item in ipairs(sourceModel:GetChildren()) do
@@ -4221,7 +4690,7 @@ local function applyCosmetics(sourceModel, snapshot, username, faceHead, targetD
     end
     extras:ApplyFace(snapshot, sourceHead, head, targetData)
     partialLegDisplay:Apply(sourceModel,snapshot,targetData)
-    humanoid.DisplayName = username
+    humanoid.DisplayName = displayName
 end
 
 local function setError(stage, problem)
@@ -4242,6 +4711,7 @@ local function restoreNow()
         local ok, problem = pcall(function() restoreAppearance(snapshot) end)
         if not ok then setError("Khôi phục lỗi", problem); return end
     end
+    appliedDisplayName=localPlayer.DisplayName
     refreshDeveloperReal()
     settings.avatar=""; settings.weapon=""; settings.pack=""; settings.moon=false
     persistSettings()
@@ -4293,6 +4763,20 @@ local function applyAvatar(rawUsername)
             setError("Username lỗi", userId)
             return
         end
+        local targetDisplayName=username
+        local roomPlayer=Players:GetPlayerByUserId(userId)
+        if roomPlayer and type(roomPlayer.DisplayName)=="string" and roomPlayer.DisplayName~="" then
+            targetDisplayName=roomPlayer.DisplayName
+        else
+            local okUsers,users=pcall(function()
+                return UserService:GetUserInfosByUserIdsAsync({userId})
+            end)
+            if okUsers and type(users)=="table" and type(users[1])=="table"
+                and type(users[1].DisplayName)=="string" and users[1].DisplayName~="" then
+                targetDisplayName=users[1].DisplayName
+            end
+        end
+        if not current() then state.avatarBusy=false; return end
         local okInfo, info = pcall(function()
             return Players:GetCharacterAppearanceInfoAsync(userId)
         end)
@@ -4385,11 +4869,13 @@ local function applyAvatar(rawUsername)
                 setError("Khôi phục cũ lỗi", problem)
                 return
             end
+            appliedDisplayName=localPlayer.DisplayName
         end
         local snapshot = makeSnapshot(character, humanoid)
         state.originalAppearance = snapshot
         local okApply, problem = pcall(function()
-            applyCosmetics(model, snapshot, username, faceModel and faceModel:FindFirstChild("Head"), targetData)
+            applyCosmetics(model, snapshot, targetDisplayName,
+                faceModel and faceModel:FindFirstChild("Head"), targetData)
         end)
         if faceModel then faceModel:Destroy() end
         model:Destroy()
@@ -4397,11 +4883,13 @@ local function applyAvatar(rawUsername)
             state.originalAppearance = nil
             pcall(function() restoreAppearance(snapshot) end)
             state.avatarBusy = false
+            appliedDisplayName=localPlayer.DisplayName
             refreshDeveloperReal()
             setError("Apply lỗi", problem)
             return
         end
         state.avatarBusy = false
+        appliedDisplayName=targetDisplayName
         weaponVisual:RefreshAvatarDisplay()
         refreshDeveloperReal()
         settings.username=username; settings.avatar=username; persistSettings()
@@ -4432,6 +4920,8 @@ end
 
 on(localPlayer.CharacterAdded, function(character)
     developerNameplate:Detach("real")
+    appliedDisplayName=localPlayer.DisplayName
+    task.spawn(watchRealDisplayName,character)
     moonbloom:Disable()
     extras:Disable()
     state.avatarToken = state.avatarToken + 1
@@ -4543,497 +5033,728 @@ end
 -- Separate clone controller; all clone instances and camera changes stay local.
 do
 local function createCloneSocialFeature(api)
-	assert(type(api) == "table", "clone social requires an api table")
-	local Players = assert(api.Players, "clone social requires Players")
-	local Workspace = assert(api.Workspace, "clone social requires Workspace")
-	local player = assert(api.player, "clone social requires player")
-	local getClone = assert(api.getClone, "clone social requires getClone")
-	assert(type(getClone) == "function", "getClone must be a function")
-	local worldParent = assert(api.worldParent, "clone social requires worldParent")
+    assert(type(api) == "table", "companion feature requires api")
+    local Players = assert(api.Players)
+    local UserService = assert(api.UserService)
+    local Workspace = assert(api.Workspace)
+    local player = assert(api.player)
+    local getClone = assert(api.getClone)
+    local worldParent = assert(api.worldParent)
+    local packs = {
+        community = {idle=126354114956642, walk=106810508343012,
+            run=124765145869332, jump=115715495289805, fall=93993406355955},
+        aura = {idle=73137983344853, walk=75183215343859,
+            run=123973978164540, jump=129527230938281, fall=99457463463495},
+    }
+    local poses = {"idle", "walk", "run", "jump", "fall"}
+    local self = {}
+    local destroyed, active, generation = false, false, 0
+    local actorGeneration = {0, 0}
+    local actors, usernames = {}, {"", ""}
+    local motionKeys = {"default", "default"}
+    local elapsed = 0
+    local cloneRef, cloneConnection, characterConnection
+    local clips = {}
+    local folder = Instance.new("Folder")
+    folder.Name = "CloneCompanionsLocalOnly"
+    folder.Parent = worldParent
 
-	local self = {}
-	local destroyed = false
-	local active = false
-	local serial = 0
-	local elapsed = 0
-	local nextLineAt = 0
-	local lineIndex = 0
-	local cloneRef = nil
-	local cloneConnection = nil
-	local characterConnection = nil
-	local actors = {}
-	local usernames = {"", ""}
-	local folder = Instance.new("Folder")
-	folder.Name = "CloneSocialLocalOnly"
-	folder.Parent = worldParent
-
-	local function report(message)
-		if not destroyed and type(api.onStatus) == "function" then
-			pcall(api.onStatus, message)
-		end
-	end
-
-	local function currentClone()
-		local ok, model = pcall(getClone)
-		if ok and model and model:IsA("Model") and model.Parent then
-			return model
-		end
-		return nil
-	end
-
-	local function disconnectClone()
-		if cloneConnection then
-			cloneConnection:Disconnect()
-			cloneConnection = nil
-		end
-		cloneRef = nil
-	end
-
-	local function clearActors()
-		for index = 1, 2 do
-			local actor = actors[index]
-			if actor then
-				if actor.model then actor.model:Destroy() end
-				actors[index] = nil
-			end
-		end
-	end
-
-	function self:Stop()
-		if destroyed then return end
-		serial += 1
-		active = false
-		disconnectClone()
-		clearActors()
-		lineIndex = 0
-		nextLineAt = 0
-		elapsed = 0
-		report("Đã xóa 2 bạn cục bộ.")
-	end
-
-	function self:IsActive()
-		return active and not destroyed
-	end
-
-	local function bindClone(model)
-		if model == cloneRef then return end
-		disconnectClone()
-		cloneRef = model
-		cloneConnection = model.Destroying:Connect(function()
-			-- clearWorld() calls Stop() first. A clone refresh, however, replaces
-			-- the model synchronously; reload after that replacement is installed.
-			if not destroyed and active and cloneRef == model then
-				disconnectClone()
-				clearActors()
-				serial += 1
-				local token = serial
-				task.defer(function()
-					if destroyed or not active or token ~= serial then return end
-					if currentClone() then self:Start(usernames[1], usernames[2])
-					else self:Stop() end
-				end)
-			end
-		end)
-	end
-
-	local function cleanModel(model)
-		for _, item in ipairs(model:GetDescendants()) do
-			if item:IsA("AnimationConstraint") then
-				local a, b = item.Part0, item.Part1
-				if a and b and a:IsDescendantOf(model) and b:IsDescendantOf(model) then
-					local motor = Instance.new("Motor6D")
-					motor.Name = item.Name
-					motor.Part0, motor.Part1 = a, b
-					motor.C0, motor.C1 = item.C0, item.C1
-					motor.Parent = item.Parent
-				end
-				item:Destroy()
-			end
-		end
-		for _, descendant in ipairs(model:GetDescendants()) do
-			if descendant:IsA("LuaSourceContainer") or descendant:IsA("Tool")
-				or descendant:IsA("RemoteEvent") or descendant:IsA("RemoteFunction")
-				or descendant:IsA("Sound") or descendant:IsA("ProximityPrompt") then
-				descendant:Destroy()
-			elseif descendant:IsA("BasePart") then
-				descendant.Anchored = true
-				descendant.CanCollide = false
-				descendant.CanTouch = false
-				descendant.CanQuery = false
-			end
-		end
-		local humanoid = model:FindFirstChildOfClass("Humanoid")
-		if humanoid then
-			humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-		end
-	end
-
-	local function bubble(actor)
-		local head = actor.model:FindFirstChild("Head", true)
-		if not head or not head:IsA("BasePart") then head = actor.root end
-		local gui = Instance.new("BillboardGui")
-		gui.Name = "LocalSpeechBubble"
-		gui.Adornee = head
-		gui.AlwaysOnTop = true
-		gui.MaxDistance = 75
-		gui.Size = UDim2.fromOffset(105, 39)
-		gui.StudsOffsetWorldSpace = Vector3.new(0, 1.35, 0)
-		gui.Enabled = false
-		gui.Parent = head
-		local plate = Instance.new("Frame")
-		plate.Size = UDim2.fromScale(1, 1)
-		plate.BorderSizePixel = 0
-		plate.BackgroundColor3 = Color3.fromRGB(249, 247, 255)
-		plate.Parent = gui
-		local rounding = Instance.new("UICorner")
-		rounding.CornerRadius = UDim.new(0, 11)
-		rounding.Parent = plate
-		local words = Instance.new("TextLabel")
-		words.Name = "Words"
-		words.BackgroundTransparency = 1
-		words.Position = UDim2.fromOffset(4, 3)
-		words.Size = UDim2.fromOffset(97, 32)
-		words.Font = Enum.Font.Gotham
-		words.TextSize = 15
-		words.Text = ""
-		words.TextColor3 = Color3.fromRGB(37, 30, 51)
-		words.TextXAlignment = Enum.TextXAlignment.Center
-		words.Parent = plate
-		actor.bubble = gui
-		actor.words = words
-	end
-
-	local function trimUsername(raw)
-		if type(raw) ~= "string" then return nil end
-		local name = raw:match("^%s*(.-)%s*$"):gsub("^@", "")
-		if #name < 3 or #name > 20 or not name:match("^[%w_]+$") then return nil end
-		return name
-	end
-
-	local function groundAt(point, clone)
-		local parameters = RaycastParams.new()
-		parameters.FilterType = Enum.RaycastFilterType.Exclude
-		parameters.FilterDescendantsInstances = {folder, clone, player.Character}
-		parameters.RespectCanCollide = true
-		parameters.IgnoreWater = true
-		local hit = Workspace:Raycast(point + Vector3.new(0, 5, 0),
-			Vector3.new(0, -22, 0), parameters)
-		if hit and hit.Normal.Y >= 0.7 then return hit.Position.Y end
-		return nil
-	end
-
-	local function wallAhead(from, movement, clone)
-		if movement.Magnitude < 0.02 then return false end
-		local parameters = RaycastParams.new()
-		parameters.FilterType = Enum.RaycastFilterType.Exclude
-		parameters.FilterDescendantsInstances = {folder, clone, player.Character}
-		parameters.RespectCanCollide = true
-		local hit = Workspace:Raycast(from + Vector3.new(0, 0.5, 0),
-			movement.Unit * (movement.Magnitude + 0.5), parameters)
-		return hit ~= nil and hit.Normal.Y < 0.7
-	end
-
-	local function cloneCenter(clone)
-		local root = clone:FindFirstChild("HumanoidRootPart", true)
-		if root and root:IsA("BasePart") then return root.Position end
-		return clone:GetPivot().Position
-	end
-
-	local function buildPoseLinks(model, root)
-		local links, pending, known = {}, {}, {[root] = true}
-		for _, joint in ipairs(model:GetDescendants()) do
-			if joint:IsA("JointInstance") and joint.Part0 and joint.Part1
-				and joint.Part0:IsDescendantOf(model) and joint.Part1:IsDescendantOf(model) then
-				pending[#pending + 1] = joint
-			end
-		end
-		while #pending > 0 do
-			local progressed = false
-			for index = #pending, 1, -1 do
-				local joint = pending[index]
-				local a, b = joint.Part0, joint.Part1
-				if known[a] or known[b] then
-					if not known[a] or not known[b] then
-						local forward = known[a] == true
-						links[#links + 1] = {joint = joint,
-							parent = forward and a or b, child = forward and b or a,
-							forward = forward}
-						known[forward and b or a] = true
-					end
-					table.remove(pending, index)
-					progressed = true
-				end
-			end
-			if not progressed then break end
-		end
-		return links
-	end
-
-	local function poseActor(actor)
-		local stride = math.sin(actor.phase) * math.min(0.53, actor.speed * 0.12)
-		local bend = math.max(0, math.sin(actor.phase)) * math.min(0.36, actor.speed * 0.08)
-		for _, link in ipairs(actor.links) do
-			local joint = link.joint
-			local transform = CFrame.identity
-			if joint:IsA("Motor6D") then
-				local name = joint.Name:gsub("%s", ""):lower()
-				if name == "lefthip" then transform = CFrame.Angles(stride, 0, 0)
-				elseif name == "righthip" then transform = CFrame.Angles(-stride, 0, 0)
-				elseif name == "leftshoulder" then transform = CFrame.Angles(-stride * 0.78, 0, 0)
-				elseif name == "rightshoulder" then transform = CFrame.Angles(stride * 0.78, 0, 0)
-				elseif name == "leftknee" then transform = CFrame.Angles(-bend, 0, 0)
-				elseif name == "rightknee" then transform = CFrame.Angles(-math.max(0,
-					-math.sin(actor.phase)) * math.min(0.36, actor.speed * 0.08), 0, 0)
-				end
-			end
-			if link.parent.Parent and link.child.Parent then
-				if link.forward then
-					link.child.CFrame = link.parent.CFrame * joint.C0
-						* transform * joint.C1:Inverse()
-				else
-					link.child.CFrame = link.parent.CFrame * joint.C1
-						* transform:Inverse() * joint.C0:Inverse()
-				end
-			end
-		end
-	end
-
-	local function placeActor(actor, position, facing, bob)
-		local frame = CFrame.new(position + Vector3.new(0, bob, 0))
-			* CFrame.Angles(0, facing, 0)
-		actor.model:PivotTo(frame * actor.rootRelative:Inverse())
-	end
-
-	local function footOffsetFor(model, root)
-		-- Body feet and legs define the visible floor. Accessories and hats must
-		-- never contribute to this offset.
-		local groups = {
-			{"LeftFoot", "RightFoot"},
-			{"Left Leg", "Right Leg"},
-			{"LeftLowerLeg", "RightLowerLeg"},
-		}
-		for visibleOnly = 1, 2 do
-			for _, names in ipairs(groups) do
-				local lowest
-				for _, name in ipairs(names) do
-					local part = model:FindFirstChild(name)
-					if part and part:IsA("BasePart")
-						and (visibleOnly == 2 or part.Transparency < 0.95) then
-						local bottom = part.Position.Y - part.Size.Y * 0.5
-						lowest = lowest and math.min(lowest, bottom) or bottom
-					end
-				end
-				if lowest then return math.clamp(root.Position.Y - lowest, 1.2, 8) end
-			end
-		end
-		local humanoid = model:FindFirstChildOfClass("Humanoid")
-		return math.clamp(root.Size.Y * 0.5
-			+ math.max(humanoid and humanoid.HipHeight or 0, 2), 1.2, 8)
-	end
-
-	local function loadActor(index, name, token, clone)
-		local model
-		local description
-		local ok, problem = pcall(function()
-			local userId = Players:GetUserIdFromNameAsync(name)
-			local info = Players:GetCharacterAppearanceInfoAsync(userId)
-			local avatarType = type(info) == "table" and info.playerAvatarType
-			if avatarType ~= "R6" and avatarType ~= "R15" then
-				error("Roblox không trả về loại rig R6/R15")
-			end
-			description = Players:GetHumanoidDescriptionFromUserIdAsync(userId)
-			pcall(function() description.UseAvatarSettings = false end)
-			model = Players:CreateHumanoidModelFromDescriptionAsync(description,
-				avatarType == "R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15,
-				Enum.AssetTypeVerification.ClientOnly)
-		end)
-		if description then description:Destroy() end
-		if not ok or not model then
-			if model then model:Destroy() end
-			if token == serial and active then
-				report("Không tải được avatar @" .. name .. ": " .. tostring(problem))
-			end
-			return
-		end
-		if destroyed or not active or token ~= serial or currentClone() ~= clone then
-			model:Destroy()
-			return
-		end
-		local setupOk, setupError = pcall(function()
-			local root = model:FindFirstChild("HumanoidRootPart", true)
-			if not root or not root:IsA("BasePart") then
-				error("thiếu HumanoidRootPart")
-			end
-			cleanModel(model)
-			model.Name = "LocalFriend" .. index .. "_" .. name
-			local footOffset = footOffsetFor(model, root)
-			local center = cloneCenter(clone)
-			local angle = index == 1 and -1.05 or 1.05
-			local radius = index == 1 and 3.8 or 5.2
-			local lateral = Vector3.new(math.sin(angle), 0, math.cos(angle)) * radius
-			local horizontal = center + lateral
-			local floorY = groundAt(horizontal, clone) or center.Y - 3
-			local actor = {
-				model = model, root = root, rootRelative = model:GetPivot():ToObjectSpace(root.CFrame),
-				links = buildPoseLinks(model, root),
-				position = Vector3.new(horizontal.X, floorY + footOffset, horizontal.Z),
-				footOffset = footOffset, goalAngle = angle,
-				direction = index == 1 and 1 or -1,
-				facing = angle + math.pi, speed = 0, phase = index * 1.7,
-			}
-			model.Parent = folder
-			bubble(actor)
-			actors[index] = actor
-			placeActor(actor, actor.position, actor.facing, 0)
-		end)
-		if not setupOk then
-			model:Destroy()
-			actors[index] = nil
-			report("Không đặt được avatar @" .. name .. ": " .. tostring(setupError))
-			return
-		end
-		if actors[1] and actors[2] then
-			report("2 bạn đang đi dạo và trò chuyện quanh bản sao.")
-		else
-			report("Đã tải @" .. name .. "; đang chờ bạn còn lại.")
-		end
-	end
-
-	function self:Start(first, second)
-		if destroyed then return false end
-		local name1 = trimUsername(first)
-		local name2 = trimUsername(second)
-		if not name1 or not name2 then
-			report("Nhập 2 username Roblox hợp lệ (3–20 ký tự).")
-			return false
-		end
-		if name1:lower() == name2:lower() then
-			report("Hãy chọn 2 username khác nhau.")
-			return false
-		end
-		local clone = currentClone()
-		if not clone then
-			report("Hãy đặt bản sao trước khi tạo 2 bạn.")
-			return false
-		end
-		self:Stop()
-		active = true
-		usernames[1], usernames[2] = name1, name2
-		bindClone(clone)
-		local token = serial
-		report("Đang tải 2 avatar Roblox…")
-		for index, name in ipairs(usernames) do
-			task.spawn(loadActor, index, name, token, clone)
-		end
-		return true
-	end
-
-	local phrases = {
-		{1, "hi"}, {2, "hello"}, {1, "holy snip"}, {2, "omg"},
-	}
-
-	function self:Step(dt)
-		if destroyed or not active then return end
-		elapsed += math.min(math.max(dt or 0, 0), 0.1)
-		if elapsed < 1 / 24 then return end
-		local step = math.min(elapsed, 0.12)
-		elapsed = 0
-		local clone = currentClone()
-		if not cloneRef then return end -- deferred restart after clone refresh
-		if not clone or clone ~= cloneRef then
-			self:Stop()
-			return
-		end
-		local now = os.clock()
-		local center = cloneCenter(clone)
-		for index = 1, 2 do
-			local actor = actors[index]
-			if actor and actor.model.Parent then
-				local radius = index == 1 and 3.8 or 5.2
-				local function offsetToGoal()
-					local goal = center + Vector3.new(math.sin(actor.goalAngle), 0,
-						math.cos(actor.goalAngle)) * radius
-					return Vector3.new(goal.X - actor.position.X, 0,
-						goal.Z - actor.position.Z)
-				end
-				local delta = offsetToGoal()
-				local distance = delta.Magnitude
-				if distance <= 0.55 then
-					if not actor.pauseUntil then
-						actor.pauseUntil = now + 0.7 + math.random() * 1.5
-					elseif now >= actor.pauseUntil then
-						-- Each waypoint advances in one direction, eventually making
-						-- full laps rather than jittering around the first position.
-						actor.goalAngle += actor.direction * (0.65 + math.random() * 0.4)
-						actor.pauseUntil = nil
-						delta = offsetToGoal()
-						distance = delta.Magnitude
-					end
-				end
-				local walking = (not actor.pauseUntil or now >= actor.pauseUntil)
-					and distance > 0.45
-				local speed = walking and math.min(5, math.max(1.7, distance * 1.5)) or 0
-				actor.speed += (speed - actor.speed) * (1 - math.exp(-step * 4))
-				local motion = walking and delta.Unit * math.min(distance,
-					actor.speed * step) or Vector3.zero
-				local nextHorizontal = actor.position + motion
-				local floorY = groundAt(nextHorizontal, clone)
-				local currentFloor = actor.position.Y - actor.footOffset
-				local blocked = wallAhead(actor.position, motion, clone)
-				if floorY and math.abs(floorY - currentFloor) <= 1.5 and not blocked then
-					local nextY = actor.position.Y + (floorY + actor.footOffset
-						- actor.position.Y) * (1 - math.exp(-step * 8))
-					actor.position = Vector3.new(nextHorizontal.X, nextY, nextHorizontal.Z)
-				else
-					actor.speed = 0
-					if not actor.avoidUntil or now >= actor.avoidUntil then
-						actor.goalAngle += actor.direction * 0.5
-						actor.pauseUntil = now + 0.6
-						actor.avoidUntil = now + 1.4
-					end
-				end
-				local look = motion.Magnitude > 0.01 and motion or
-					Vector3.new(center.X - actor.position.X, 0, center.Z - actor.position.Z)
-				if look.Magnitude > 0.01 then
-					local targetFacing = math.atan2(-look.X, -look.Z)
-					local difference = math.atan2(math.sin(targetFacing - actor.facing),
-						math.cos(targetFacing - actor.facing))
-					actor.facing += difference * (1 - math.exp(-step * 5))
-				end
-				actor.phase += actor.speed * step * 2.2
-				local bob = math.sin(actor.phase) * math.min(0.07, actor.speed * 0.015)
-				placeActor(actor, actor.position, actor.facing, bob)
-				poseActor(actor)
-				if actor.bubble and actor.bubble.Enabled and now >= actor.bubbleUntil then
-					actor.bubble.Enabled = false
-				end
-			end
-		end
-		if actors[1] and actors[2] and now >= nextLineAt then
-			lineIndex = lineIndex % #phrases + 1
-			local phrase = phrases[lineIndex]
-			local actor = actors[phrase[1]]
-			if actor and actor.bubble then
-				actor.words.Text = phrase[2]
-				actor.bubble.Enabled = true
-				actor.bubbleUntil = now + 2.4
-			end
-			nextLineAt = now + (lineIndex % 2 == 1 and 3.1 or 7 + math.random() * 3)
-		end
-	end
-
-	function self:Destroy()
-		if destroyed then return end
-		self:Stop()
-		destroyed = true
-		if characterConnection then characterConnection:Disconnect() end
-		folder:Destroy()
-	end
-
-	characterConnection = player.CharacterRemoving:Connect(function()
-		if not destroyed then self:Stop() end
-	end)
-	return self
+    local function report(message)
+        if not destroyed and type(api.onStatus) == "function" then
+            pcall(api.onStatus, message)
+        end
+    end
+    local function currentClone()
+        local ok, model = pcall(getClone)
+        if ok and model and model:IsA("Model") and model.Parent then return model end
+        return nil
+    end
+    local function cloneRoot(clone)
+        local root = clone:FindFirstChild("HumanoidRootPart", true)
+        return root and root:IsA("BasePart") and root or nil
+    end
+    local function cloneCenter(clone)
+        local root = cloneRoot(clone)
+        return root and root.Position or clone:GetPivot().Position
+    end
+    local function validIndex(index)
+        return type(index) == "number" and (index == 1 or index == 2)
+    end
+    local function username(raw)
+        if type(raw) ~= "string" then return nil end
+        local name = raw:match("^%s*(.-)%s*$"):gsub("^@", "")
+        if #name < 3 or #name > 20 or not name:match("^[%w_]+$") then return nil end
+        return name
+    end
+    local function paramsFor(clone)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local excluded = {folder, clone}
+        if player.Character then excluded[#excluded+1] = player.Character end
+        params.FilterDescendantsInstances = excluded
+        params.RespectCanCollide = true
+        params.IgnoreWater = true
+        return params
+    end
+    local function floorAt(point, params)
+        local hit = Workspace:Raycast(point + Vector3.new(0,5,0),
+            Vector3.new(0,-24,0), params)
+        if hit and hit.Normal.Y >= 0.75 then return hit.Position.Y end
+        return nil
+    end
+    local footprints = {Vector3.new(.6,0,0), Vector3.new(-.6,0,0),
+        Vector3.new(0,0,.6), Vector3.new(0,0,-.6)}
+    local function safeFloor(point, clone)
+        local params = paramsFor(clone)
+        local y = floorAt(point, params)
+        if not y then return nil end
+        for _, offset in ipairs(footprints) do
+            local sideY = floorAt(point + offset, params)
+            if not sideY or math.abs(sideY-y) > .65 then return nil end
+            local hit = Workspace:Raycast(Vector3.new(point.X,y+1.2,point.Z),
+                offset.Unit*.7, params)
+            if hit and hit.Normal.Y < .7 then return nil end
+        end
+        return y
+    end
+    local function wallBetween(from, to, floorY, clone)
+        local delta = Vector3.new(to.X-from.X, 0, to.Z-from.Z)
+        if delta.Magnitude < .02 then return false end
+        local params = paramsFor(clone)
+        for _, height in ipairs({.65,2.2}) do
+            local origin = Vector3.new(from.X,floorY+height,from.Z)
+            local hit = Workspace:Raycast(origin, delta.Unit*(delta.Magnitude+.5), params)
+            if hit and hit.Normal.Y < .7 then return true end
+        end
+        return false
+    end
+    local function releaseTracks(actor)
+        actor.motionGeneration += 1
+        local bank = actor.bank
+        actor.bank, actor.currentPose = nil, nil
+        if bank then
+            for _, entry in pairs(bank) do
+                pcall(function() entry.track:Stop(0) end)
+                entry.track:Destroy()
+                entry.animation:Destroy()
+            end
+        end
+    end
+    local function destroyActor(actor)
+        if not actor then return end
+        if actors[actor.index] == actor and type(api.onActorModel) == "function" then
+            pcall(api.onActorModel, actor.index, nil)
+        end
+        releaseTracks(actor)
+        actor.model:Destroy()
+    end
+    local function clearActors()
+        for index=1,2 do
+            destroyActor(actors[index])
+            actors[index] = nil
+        end
+    end
+    local function disconnectClone()
+        if cloneConnection then cloneConnection:Disconnect(); cloneConnection=nil end
+        cloneRef = nil
+    end
+    function self:Stop()
+        if destroyed then return end
+        generation += 1
+        actorGeneration[1] += 1
+        actorGeneration[2] += 1
+        active = false
+        disconnectClone()
+        clearActors()
+        usernames[1],usernames[2]="",""
+        elapsed = 0
+        report("Đã xóa 2 nhân vật cục bộ.")
+    end
+    function self:IsActive()
+        return active and not destroyed
+    end
+    local function bindClone(model)
+        if model == cloneRef then return end
+        disconnectClone()
+        cloneRef = model
+        cloneConnection = model.Destroying:Connect(function()
+            if destroyed or not active or cloneRef ~= model then return end
+            disconnectClone()
+            clearActors()
+            generation += 1
+            local token = generation
+            task.spawn(function()
+                local deadline = os.clock()+2
+                while active and not destroyed and generation==token
+                    and os.clock()<deadline do
+                    local replacement = currentClone()
+                    if replacement and replacement~=model then
+                        self:Start(usernames[1],usernames[2])
+                        return
+                    end
+                    task.wait(.1)
+                end
+                if active and generation==token then self:Stop() end
+            end)
+        end)
+    end
+    local function cleanModel(model)
+        -- Avatar generation can use AnimationConstraints; convert them for
+        -- the anchored pose solver before removing executable descendants.
+        for _, item in ipairs(model:GetDescendants()) do
+            if item:IsA("AnimationConstraint") then
+                local a,b=item.Part0,item.Part1
+                if a and b and a:IsDescendantOf(model) and b:IsDescendantOf(model) then
+                    local motor=Instance.new("Motor6D")
+                    motor.Name=item.Name
+                    motor.Part0,motor.Part1=a,b
+                    motor.C0,motor.C1=item.C0,item.C1
+                    motor.Parent=item.Parent
+                end
+                item:Destroy()
+            end
+        end
+        for _, item in ipairs(model:GetDescendants()) do
+            if item:IsA("LuaSourceContainer") or item:IsA("Tool")
+                or item:IsA("RemoteEvent") or item:IsA("RemoteFunction")
+                or item:IsA("Sound") or item:IsA("ProximityPrompt") then
+                item:Destroy()
+            elseif item:IsA("BasePart") then
+                item.Anchored=true
+                item.CanCollide=false
+                item.CanTouch=false
+                item.CanQuery=false
+            end
+        end
+        local humanoid=model:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.DisplayDistanceType=Enum.HumanoidDisplayDistanceType.None
+            humanoid.AutoRotate=false
+            pcall(function() humanoid.EvaluateStateMachine=false end)
+            pcall(function() humanoid.AutomaticScalingEnabled=false end)
+        end
+    end
+    local function buildLinks(model, root)
+        local links,pending,known={},{},{[root]=true}
+        for _, joint in ipairs(model:GetDescendants()) do
+            if joint:IsA("JointInstance") and joint.Part0 and joint.Part1
+                and joint.Part0:IsDescendantOf(model) and joint.Part1:IsDescendantOf(model) then
+                pending[#pending+1]=joint
+            end
+        end
+        while #pending>0 do
+            local progressed=false
+            for index=#pending,1,-1 do
+                local joint=pending[index]
+                local a,b=joint.Part0,joint.Part1
+                if known[a] or known[b] then
+                    if not known[a] or not known[b] then
+                        local forward=known[a]==true
+                        links[#links+1]={joint=joint,parent=forward and a or b,
+                            child=forward and b or a,forward=forward}
+                        known[forward and b or a]=true
+                    end
+                    table.remove(pending,index)
+                    progressed=true
+                end
+            end
+            if not progressed then break end
+        end
+        return links
+    end
+    local function nativeTransform(actor, name)
+        local stride=math.sin(actor.phase)*math.min(.46,actor.speed*.18)
+        if actor.action=="jump" then
+            if name=="lefthip" or name=="righthip" then
+                return CFrame.Angles(-.35,0,0)
+            elseif name=="leftshoulder" or name=="rightshoulder" then
+                return CFrame.Angles(-.55,0,0)
+            end
+        end
+        if name=="lefthip" then return CFrame.Angles(stride,0,0) end
+        if name=="righthip" then return CFrame.Angles(-stride,0,0) end
+        if name=="leftshoulder" then return CFrame.Angles(-stride*.7,0,0) end
+        if name=="rightshoulder" then return CFrame.Angles(stride*.7,0,0) end
+        if name=="leftknee" then
+            return CFrame.Angles(-math.max(0,math.sin(actor.phase))*.25,0,0)
+        end
+        if name=="rightknee" then
+            return CFrame.Angles(-math.max(0,-math.sin(actor.phase))*.25,0,0)
+        end
+        return CFrame.identity
+    end
+    local function poseActor(actor)
+        local packEntry=actor.bank and actor.currentPose
+            and actor.bank[actor.currentPose]
+        local usePack=packEntry and packEntry.track.Length>0
+        for _, link in ipairs(actor.links) do
+            local joint=link.joint
+            local transform=CFrame.identity
+            if joint:IsA("Motor6D") then
+                transform=usePack and joint.Transform
+                    or nativeTransform(actor,joint.Name:gsub("%s",""):lower())
+            end
+            if link.parent.Parent and link.child.Parent then
+                if link.forward then
+                    link.child.CFrame=link.parent.CFrame*joint.C0*transform*joint.C1:Inverse()
+                else
+                    link.child.CFrame=link.parent.CFrame*joint.C1
+                        *transform:Inverse()*joint.C0:Inverse()
+                end
+            end
+        end
+    end
+    local function placeActor(actor,bob)
+        local frame=CFrame.new(actor.position+Vector3.new(0,bob,0))
+            *CFrame.Angles(0,actor.facing,0)
+        actor.model:PivotTo(frame*actor.rootRelative:Inverse())
+    end
+    local function visibleFootBottom(model)
+        for _, names in ipairs({{"LeftFoot","RightFoot"},
+            {"Left Leg","Right Leg"},{"LeftLowerLeg","RightLowerLeg"}}) do
+            local lowest
+            for _, name in ipairs(names) do
+                local part=model:FindFirstChild(name)
+                if part and part:IsA("BasePart") and part.Transparency<.95 then
+                    local half=part.Size*.5
+                    local frame=part.CFrame
+                    local radius=math.abs(frame.RightVector.Y)*half.X
+                        +math.abs(frame.UpVector.Y)*half.Y
+                        +math.abs(frame.LookVector.Y)*half.Z
+                    local bottom=part.Position.Y-radius
+                    lowest=lowest and math.min(lowest,bottom) or bottom
+                end
+            end
+            if lowest then return lowest end
+        end
+        return nil
+    end
+    local function footOffset(model,root)
+        local lowest=visibleFootBottom(model)
+        if lowest then return math.clamp(root.Position.Y-lowest,.1,8) end
+        local humanoid=model:FindFirstChildOfClass("Humanoid")
+        return math.clamp(root.Size.Y*.5+
+            math.max(humanoid and humanoid.HipHeight or 0,2),.1,8)
+    end
+    local function descriptionClips(description)
+        local result={}
+        if not description then return result end
+        for _, pose in ipairs(poses) do
+            local property=pose:sub(1,1):upper()..pose:sub(2).."Animation"
+            local ok,id=pcall(function() return description[property] end)
+            if ok and type(id)=="number" and id>0 then
+                result[pose]="rbxassetid://"..tostring(id)
+            end
+        end
+        return result
+    end
+    local function modelClips(model,fallback)
+        local result=table.clone(fallback)
+        local animate=model:FindFirstChild("Animate",true)
+        if not animate then return result end
+        -- Capture the generated avatar's own Animate assets before cleanModel
+        -- removes scripts. Folder names identify the pose on both rig types.
+        for _, pose in ipairs(poses) do
+            local group=animate:FindFirstChild(pose)
+            if group then
+                if group:IsA("Animation") and group.AnimationId~="" then
+                    result[pose]=group.AnimationId
+                else
+                    for _, child in ipairs(group:GetDescendants()) do
+                        if child:IsA("Animation") and child.AnimationId~="" then
+                            result[pose]=child.AnimationId
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        return result
+    end
+    local function resolvePack(key)
+        if clips[key] then return clips[key] end
+        local resolved=resolveCatalogMotionPack(packs[key],poses)
+        clips[key]=resolved
+        return resolved
+    end
+    local function preparePack(actor,key)
+        releaseTracks(actor)
+        actor.motionKey=key
+        local useCustom=key~="default" and actor.rig==Enum.HumanoidRigType.R15
+        local source=useCustom and packs[key] or actor.defaultClips
+        if not source or not next(source) then return end
+        local humanoid=actor.model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then return end
+        local animator=humanoid:FindFirstChildOfClass("Animator")
+        if not animator then animator=Instance.new("Animator"); animator.Parent=humanoid end
+        local token,generationAtStart=actor.motionGeneration,generation
+        task.spawn(function()
+            local bank={}
+            local function valid()
+                return active and not destroyed and generation==generationAtStart
+                    and actors[actor.index]==actor and actor.model.Parent==folder
+                    and actor.motionGeneration==token and actor.motionKey==key
+            end
+            local resolved
+            if useCustom then
+                local ok,result=pcall(resolvePack,key)
+                if not ok then
+                    if valid() then report("Gói chuyển động "..key.." lỗi: "..tostring(result)) end
+                    return
+                end
+                resolved=result
+            end
+            for _, pose in ipairs(poses) do
+                if not valid() then break end
+                if source[pose] then
+                    local animation=Instance.new("Animation")
+                    local ok,entry=pcall(function()
+                        animation.AnimationId=useCustom and resolved[pose]
+                            or source[pose]
+                        local track=animator:LoadAnimation(animation)
+                        track.Priority=pose=="idle" and Enum.AnimationPriority.Idle
+                            or pose=="jump" and Enum.AnimationPriority.Action
+                            or Enum.AnimationPriority.Movement
+                        track.Looped=pose~="jump"
+                        return {animation=animation,track=track}
+                    end)
+                    if ok then bank[pose]=entry else animation:Destroy() end
+                end
+            end
+            if valid() and next(bank) then actor.bank=bank; return end
+            for _, entry in pairs(bank) do
+                entry.track:Destroy()
+                entry.animation:Destroy()
+            end
+        end)
+    end
+    local function updateTrack(actor)
+        local bank=actor.bank
+        if not bank then return end
+        local wanted=actor.action=="jump" and "jump"
+            or actor.speed>.3 and "walk" or "idle"
+        local entry=bank[wanted]
+        if not entry or entry.track.Length<=0 then
+            if actor.currentPose and bank[actor.currentPose] then
+                bank[actor.currentPose].track:Stop(.1)
+            end
+            actor.currentPose=nil
+            return
+        end
+        if actor.currentPose~=wanted or not entry.track.IsPlaying then
+            if actor.currentPose and bank[actor.currentPose] then
+                bank[actor.currentPose].track:Stop(.12)
+            end
+            actor.currentPose=wanted
+            entry.track:Play(.12,1,wanted=="walk"
+                and math.clamp(actor.speed/6,.65,1.15) or 1)
+        elseif wanted=="walk" then
+            entry.track:AdjustSpeed(math.clamp(actor.speed/6,.65,1.15))
+        end
+    end
+    local function spawnPoint(index,clone,oldActor)
+        if oldActor then
+            local anchor=oldActor.anchor
+            local y=safeFloor(anchor,clone)
+            if y then return Vector3.new(anchor.X,y,anchor.Z) end
+        end
+        local root=cloneRoot(clone)
+        local center=cloneCenter(clone)
+        local frame=root and root.CFrame or clone:GetPivot()
+        local side=index==1 and -1 or 1
+        for _, candidate in ipairs({{3.2,1.5},{4,.3},{4.5,-1.5},{5.1,1.8}}) do
+            local point=center+frame.RightVector*side*candidate[1]
+                +frame.LookVector*candidate[2]
+            local y=safeFloor(point,clone)
+            local other=actors[3-index]
+            if y and (not other or (point-other.anchor).Magnitude>2.4)
+                and not wallBetween(center,point,y,clone) then
+                return Vector3.new(point.X,y,point.Z)
+            end
+        end
+        return nil
+    end
+    local function loadActor(index,name,lifeToken,actorToken,clone)
+        local model,description
+        local shownName=name
+        local ok,problem=pcall(function()
+            local userId=Players:GetUserIdFromNameAsync(name)
+            local roomPlayer=Players:GetPlayerByUserId(userId)
+            if roomPlayer and type(roomPlayer.DisplayName)=="string" and roomPlayer.DisplayName~="" then
+                shownName=roomPlayer.DisplayName
+            else
+                local okUsers,users=pcall(function()
+                    return UserService:GetUserInfosByUserIdsAsync({userId})
+                end)
+                if okUsers and type(users)=="table" and type(users[1])=="table"
+                    and type(users[1].DisplayName)=="string" and users[1].DisplayName~="" then
+                    shownName=users[1].DisplayName
+                end
+            end
+            local info=Players:GetCharacterAppearanceInfoAsync(userId)
+            local rig=type(info)=="table" and info.playerAvatarType
+            if rig~="R6" and rig~="R15" then error("missing R6/R15 rig type") end
+            description=Players:GetHumanoidDescriptionFromUserIdAsync(userId)
+            pcall(function() description.UseAvatarSettings=false end)
+            model=Players:CreateHumanoidModelFromDescriptionAsync(description,
+                rig=="R6" and Enum.HumanoidRigType.R6 or Enum.HumanoidRigType.R15,
+                Enum.AssetTypeVerification.ClientOnly)
+        end)
+        local fallbackClips=descriptionClips(description)
+        if description then description:Destroy() end
+        local function valid()
+            return not destroyed and active and lifeToken==generation
+                and actorToken==actorGeneration[index] and currentClone()==clone
+        end
+        if not ok or not model then
+            if model then model:Destroy() end
+            if valid() then report("Không tải được @"..name..": "..tostring(problem)) end
+            return
+        end
+        if not valid() then model:Destroy(); return end
+        local actor
+        local setupOk,setupError=pcall(function()
+            local root=model:FindFirstChild("HumanoidRootPart",true)
+            local humanoid=model:FindFirstChildOfClass("Humanoid")
+            if not root or not root:IsA("BasePart") or not humanoid then
+                error("avatar missing root or Humanoid")
+            end
+            humanoid.DisplayName=shownName
+            local defaultClips=modelClips(model,fallbackClips)
+            cleanModel(model)
+            model.Name="LocalCompanion"..index.."_"..name
+            local anchor=spawnPoint(index,clone,actors[index])
+            if not anchor then error("no safe ground near clone") end
+            local height=footOffset(model,root)
+            local center=cloneCenter(clone)
+            local toward=Vector3.new(center.X-anchor.X,0,center.Z-anchor.Z)
+            local facing=toward.Magnitude>.01
+                and math.atan2(-toward.X,-toward.Z) or 0
+            actor={index=index,model=model,root=root,rig=humanoid.RigType,
+                rootRelative=model:GetPivot():ToObjectSpace(root.CFrame),
+                links=buildLinks(model,root),anchor=anchor,
+                position=anchor+Vector3.new(0,height,0),footOffset=height,
+                facing=facing,speed=0,phase=index*1.6,action="idle",
+                nextAction=os.clock()+3+index*2+math.random()*3,
+                motionKey="default",motionGeneration=0,
+                defaultClips=defaultClips,parts={}}
+            for _, item in ipairs(model:GetDescendants()) do
+                if item:IsA("BasePart") then actor.parts[#actor.parts+1]=item end
+            end
+            model.Parent=folder
+            placeActor(actor,0)
+            poseActor(actor)
+            -- Package limbs may start at the root before the first manual pose.
+            -- Measure the feet after posing, then align that geometry to ground.
+            local bottom=visibleFootBottom(model)
+            if bottom then
+                actor.footOffset=math.clamp(actor.footOffset+anchor.Y-bottom,.1,12)
+                actor.position=anchor+Vector3.new(0,actor.footOffset,0)
+                placeActor(actor,0)
+            end
+        end)
+        if not setupOk or not valid() then
+            model:Destroy()
+            if valid() then report("Không đặt được @"..name..": "..tostring(setupError)) end
+            return
+        end
+        local previous=actors[index]
+        actors[index]=actor
+        usernames[index]=name
+        destroyActor(previous)
+        if type(api.onActorModel)=="function" then
+            local attached,attachError=pcall(api.onActorModel,index,model,shownName)
+            if not attached then report("Danh hiệu bạn "..index.." lỗi: "..tostring(attachError)) end
+        end
+        preparePack(actor,motionKeys[index])
+        report("Đã áp dụng @"..name.." cho nhân vật "..index..".")
+    end
+    function self:Start(first,second)
+        if destroyed then return false end
+        local firstName,secondName=username(first),username(second)
+        local firstText=type(first)=="string" and first:match("^%s*(.-)%s*$") or ""
+        local secondText=type(second)=="string" and second:match("^%s*(.-)%s*$") or ""
+        if (firstText~="" and not firstName) or (secondText~="" and not secondName) then
+            report("Username Roblox không hợp lệ (3–20 ký tự).")
+            return false
+        end
+        if not firstName and not secondName then
+            report("Nhập ít nhất 1 username Roblox.")
+            return false
+        end
+        if firstName and secondName and firstName:lower()==secondName:lower() then
+            report("Hãy chọn 2 username khác nhau.")
+            return false
+        end
+        local clone=currentClone()
+        if not clone then report("Hãy đặt bản sao trước."); return false end
+        self:Stop()
+        active=true
+        usernames[1],usernames[2]=firstName or "",secondName or ""
+        bindClone(clone)
+        local lifeToken=generation
+        for index=1,2 do
+            local name=usernames[index]
+            if name~="" then
+                actorGeneration[index]+=1
+                task.spawn(loadActor,index,name,lifeToken,actorGeneration[index],clone)
+            end
+        end
+        report("Đang tải nhân vật cục bộ...")
+        return true
+    end
+    function self:ApplyActor(index,raw)
+        if destroyed or not validIndex(index) then return false end
+        local name=username(raw)
+        if not name then report("Username Roblox không hợp lệ."); return false end
+        if active and usernames[3-index]~="" and usernames[3-index]:lower()==name:lower() then
+            report("Hãy chọn username khác nhân vật còn lại.")
+            return false
+        end
+        local clone=currentClone()
+        if not clone then report("Hãy đặt bản sao trước."); return false end
+        if not active then
+            active=true
+            usernames[1],usernames[2]="",""
+            bindClone(clone)
+        elseif clone~=cloneRef then return false end
+        -- Keep the requested avatar across a clone replacement while its
+        -- appearance is still loading asynchronously.
+        usernames[index]=name
+        actorGeneration[index]+=1
+        task.spawn(loadActor,index,name,generation,actorGeneration[index],clone)
+        report("Đang áp dụng @"..name.." cho nhân vật "..index.."...")
+        return true
+    end
+    function self:SetMotionPack(index,key)
+        if destroyed or not validIndex(index) or type(key)~="string"
+            or (key~="default" and not packs[key]) then return false end
+        motionKeys[index]=key
+        local actor=actors[index]
+        if actor then
+            preparePack(actor,key)
+            if actor.rig~=Enum.HumanoidRigType.R15 and key~="default" then
+                report("Nhân vật "..index.." dùng R6; đang dùng dáng R6 an toàn.")
+            end
+        end
+        return true
+    end
+    local function chooseAction(actor,clone,now)
+        actor.nextAction=now+5+math.random()*7+actor.index*.35
+        if math.random()<.25 then
+            local ceiling=Workspace:Raycast(actor.position+Vector3.new(0,1,0),
+                Vector3.new(0,3.5,0),paramsFor(clone))
+            if not ceiling then
+                actor.action="jump"
+                actor.jumpStart=now
+                actor.jumpDuration=.68+math.random()*.12
+                return
+            end
+        end
+        local center=cloneCenter(clone)
+        local other=actors[3-actor.index]
+        for _=1,8 do
+            local angle=math.random()*math.pi*2
+            local radius=1+math.random()
+            local goal=actor.anchor+Vector3.new(math.cos(angle)*radius,0,
+                math.sin(angle)*radius)
+            local y=safeFloor(goal,clone)
+            local nearClone=Vector3.new(goal.X-center.X,0,goal.Z-center.Z).Magnitude<2.25
+            local nearOther=other and (goal-other.anchor).Magnitude<2.1
+            if y and math.abs(y-actor.anchor.Y)<=.7
+                and not nearClone and not nearOther
+                and not wallBetween(actor.position,goal,y,clone) then
+                actor.goal=Vector3.new(goal.X,y+actor.footOffset,goal.Z)
+                actor.action="step"
+                actor.pace=4.5+math.random()
+                actor.actionUntil=now+1
+                return
+            end
+        end
+        actor.action="idle"
+    end
+    function self:Step(dt)
+        if destroyed or not active then return end
+        elapsed+=math.clamp(type(dt)=="number" and dt or 0,0,.1)
+        if elapsed<1/30 then return end
+        local step=math.min(elapsed,.1)
+        elapsed=0
+        local clone=currentClone()
+        if not cloneRef then return end
+        if not clone or clone~=cloneRef then self:Stop(); return end
+        local now=os.clock()
+        for index=1,2 do
+            local actor=actors[index]
+            if actor and actor.model.Parent==folder then
+                local bob=0
+                if actor.action=="jump" then
+                    local progress=(now-actor.jumpStart)/actor.jumpDuration
+                    if progress>=1 then actor.action="idle"
+                    else bob=4*1.15*progress*(1-progress) end
+                elseif actor.action=="step" then
+                    local delta=Vector3.new(actor.goal.X-actor.position.X,0,
+                        actor.goal.Z-actor.position.Z)
+                    if delta.Magnitude<.08 or now>=actor.actionUntil then
+                        actor.action="idle"
+                    else
+                        local pace=actor.pace
+                        local move=delta.Unit*math.min(delta.Magnitude,pace*step)
+                        local nextPosition=actor.position+move
+                        local y=safeFloor(nextPosition,clone)
+                        local other=actors[3-index]
+                        local tooClose=other and
+                            (nextPosition-other.position).Magnitude<1.8
+                        if y and math.abs(y-actor.anchor.Y)<=.7
+                            and not tooClose
+                            and not wallBetween(actor.position,nextPosition,y,clone) then
+                            actor.position=Vector3.new(nextPosition.X,
+                                y+actor.footOffset,nextPosition.Z)
+                            actor.speed=move.Magnitude/step
+                            local target=math.atan2(-move.X,-move.Z)
+                            local turn=math.atan2(math.sin(target-actor.facing),
+                                math.cos(target-actor.facing))
+                            actor.facing+=turn*(1-math.exp(-step*12))
+                        else
+                            actor.action="idle"
+                        end
+                    end
+                end
+                if actor.action=="idle" and now>=actor.nextAction then
+                    chooseAction(actor,clone,now)
+                end
+                if actor.action~="step" then
+                    actor.speed+=(0-actor.speed)*(1-math.exp(-step*8))
+                end
+                actor.phase+=actor.speed*step*2.5
+                if actor.action=="step" then
+                    bob+=math.abs(math.sin(actor.phase))*.035
+                end
+                updateTrack(actor)
+                placeActor(actor,bob)
+                poseActor(actor)
+                -- Humanoid can reset collision flags after parenting.
+                for _, part in ipairs(actor.parts) do
+                    if part.Parent then
+                        if not part.Anchored then part.Anchored=true end
+                        if part.CanCollide then part.CanCollide=false end
+                        if part.CanTouch then part.CanTouch=false end
+                        if part.CanQuery then part.CanQuery=false end
+                    end
+                end
+            end
+        end
+    end
+    function self:Destroy()
+        if destroyed then return end
+        self:Stop()
+        destroyed=true
+        if characterConnection then characterConnection:Disconnect() end
+        folder:Destroy()
+    end
+    characterConnection=player.CharacterRemoving:Connect(function()
+        if not destroyed then self:Stop() end
+    end)
+    return self
 end
 
 -- LocalScript (StarterPlayerScripts): the avatar copy exists only on this client.
@@ -5223,14 +5944,126 @@ local function makeSocialNameBox(name, order, placeholder)
 	return box
 end
 local socialNameA = makeSocialNameBox("SocialUsername1", 9, "@username bạn thứ nhất")
-local socialNameB = makeSocialNameBox("SocialUsername2", 10, "@username bạn thứ hai")
-local socialButton = makeButton("Social", 11, "Tạo 2 bạn tương tác: TẮT", Color3.fromRGB(67, 102, 161))
-local removeButton = makeButton("Remove", 12, "Xóa bản sao", Color3.fromRGB(95, 48, 87))
-local closeButton = makeButton("Close", 13, "Đóng bảng và xóa", Color3.fromRGB(62, 50, 82))
-local hint = makeLabel("Hint", 14, 30, "WASD + Space  •  2 bạn và bong bóng thoại chỉ hiện trên máy bạn", Color3.fromRGB(158, 139, 178), 11)
+local function makeSocialActionRow(name, order, firstText, secondText)
+	local row=Instance.new("Frame")
+	row.Name=name
+	row.LayoutOrder=order
+	row.Size=UDim2.new(1,0,0,32)
+	row.BackgroundTransparency=1
+	row.Parent=panel
+	local first=makeButton(name.."Apply",order,firstText,Color3.fromRGB(106,68,166))
+	first.Parent=row
+	first.Size=UDim2.new(0.48,0,1,0)
+	first.Position=UDim2.fromScale(0,0)
+	local second=makeButton(name.."Pack",order,secondText,Color3.fromRGB(70,76,121))
+	second.Parent=row
+	second.Size=UDim2.new(0.48,0,1,0)
+	second.Position=UDim2.fromScale(0.52,0)
+	first.TextSize=11; second.TextSize=11
+	return first,second
+end
+local socialApplyA,socialPackA=makeSocialActionRow("Friend1",10,"Apply bạn 1","Động tác 1: GỐC")
+local function companionDefaults()
+	return {mode="display",role="off",color="blue",roleColor="red",ownerShine="white",
+		adminShine="white",developerShine="white",direction="right",height=0.75,size=1}
+end
+local companionStyles = {companionDefaults(),companionDefaults()}
+local hasCompanionTitles = type(integrationState)=="table"
+	and type(integrationState.SetDeveloperCompanionStyle)=="function"
+if hasCompanionTitles and type(integrationState.GetDeveloperCompanionStyle)=="function" then
+	for index=1,2 do
+		local saved=integrationState.GetDeveloperCompanionStyle(index)
+		if type(saved)=="table" then companionStyles[index]=table.clone(saved) end
+	end
+end
+local function makeCompanionTitleCard(index,order)
+	local card=Instance.new("Frame")
+	card.Name="Friend"..index.."TitleSettings"
+	card.LayoutOrder=order
+	card.Size=UDim2.new(1,0,0,32)
+	card.BackgroundTransparency=1
+	card.ClipsDescendants=true
+	card.Visible=hasCompanionTitles
+	card.Parent=panel
+	local header=Instance.new("TextButton")
+	header.Name="Toggle"
+	header.Size=UDim2.new(1,0,0,32)
+	header.BackgroundColor3=Color3.fromRGB(55,70,116)
+	header.BorderSizePixel=0
+	header.TextColor3=Color3.fromRGB(255,255,255)
+	header.TextSize=11
+	header.Font=Enum.Font.GothamBold
+	header.Parent=card
+	local rounded=Instance.new("UICorner"); rounded.CornerRadius=UDim.new(0,6); rounded.Parent=header
+	local content=Instance.new("Frame")
+	content.Name="Options"
+	content.Position=UDim2.fromOffset(0,34)
+	content.Size=UDim2.new(1,0,0,474)
+	content.BackgroundColor3=Color3.fromRGB(32,29,50)
+	content.BorderSizePixel=0
+	content.Visible=false
+	content.Parent=card
+	local bgCorner=Instance.new("UICorner"); bgCorner.CornerRadius=UDim.new(0,6); bgCorner.Parent=content
+	local groups={}
+	local function row(key,caption,y,choices)
+		local label=Instance.new("TextLabel")
+		label.BackgroundTransparency=1
+		label.Position=UDim2.fromOffset(8,y)
+		label.Size=UDim2.new(1,-16,0,14)
+		label.Text=caption
+		label.TextSize=10
+		label.TextColor3=Color3.fromRGB(178,167,206)
+		label.Font=Enum.Font.GothamMedium
+		label.TextXAlignment=Enum.TextXAlignment.Left
+		label.Parent=content
+		groups[key]={}
+		local count=#choices
+		local width=(282-(count-1)*4)/count
+		for choiceIndex,choice in ipairs(choices) do
+			local button=Instance.new("TextButton")
+			button.Name=key.."_"..choice[1]
+			button.Position=UDim2.fromOffset(8+(choiceIndex-1)*(width+4),y+16)
+			button.Size=UDim2.fromOffset(width,27)
+			button.BackgroundColor3=Color3.fromRGB(47,48,69)
+			button.BorderSizePixel=0
+			button.Text=choice[2]
+			button.TextColor3=Color3.fromRGB(244,246,255)
+			button.TextSize=count==4 and 9 or 10
+			button.Font=Enum.Font.GothamMedium
+			button.Parent=content
+			local corner=Instance.new("UICorner"); corner.CornerRadius=UDim.new(0,5); corner.Parent=button
+			groups[key][choice[1]]=button
+		end
+		return label
+	end
+	row("mode","DANH HIỆU / TÊN HIỂN THỊ",5,{{"off","TẮT"},{"developer","DEVELOPER"},{"creator","CREATOR"},{"display","TÊN HIỂN THỊ"}})
+	row("role","VAI TRÒ TRÊN TÊN",55,{{"off","KHÔNG"},{"owner","OWNER"},
+		{"admin","ADMIN"},{"developer","DEVELOPER"}})
+	local colorCaption=row("color","MÀU DANH HIỆU / VAI TRÒ",105,{{"blue","XANH ĐẬM"},{"sky","XANH TRỜI"},{"red","ĐỎ"},{"yellow","VÀNG"}})
+	row("ownerShine","VỆT SÁNG OWNER",155,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("adminShine","VỆT SÁNG ADMIN",205,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("developerShine","VỆT SÁNG DEVELOPER",255,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("direction","HƯỚNG VỆT SÁNG",305,{{"right","TRÁI → PHẢI"},{"left","PHẢI → TRÁI"}})
+	local function stepper(key,caption,y)
+		row(key,caption,y,{{"down","−"},{"value",""},{"up","+"}})
+		groups[key].value.AutoButtonColor=false
+	end
+	stepper("height","ĐỘ CAO TRÊN ĐẦU",355)
+	stepper("size","CỠ CHỮ",405)
+	return {frame=card,header=header,content=content,groups=groups,
+		colorCaption=colorCaption,expanded=false,index=index}
+end
+local companionCards={makeCompanionTitleCard(1,11)}
+local socialNameB = makeSocialNameBox("SocialUsername2", 12, "@username bạn thứ hai")
+local socialApplyB,socialPackB=makeSocialActionRow("Friend2",13,"Apply bạn 2","Động tác 2: GỐC")
+companionCards[2]=makeCompanionTitleCard(2,14)
+local socialButton = makeButton("Social", 15, "Nhân vật: TẮT", Color3.fromRGB(67, 102, 161))
+local removeButton = makeButton("Remove", 16, "Xóa bản sao", Color3.fromRGB(95, 48, 87))
+local closeButton = makeButton("Close", 17, "Đóng bảng và xóa", Color3.fromRGB(62, 50, 82))
+local hint = makeLabel("Hint", 18, 34, "Nhập tên, Apply từng bạn • mở Danh hiệu bạn 1/2 để chỉnh riêng", Color3.fromRGB(158, 139, 178), 11)
 if hostPage then
     panel.Parent = hostPage
-    panel.Size = UDim2.fromOffset(340, 620)
+    panel.Size = UDim2.fromOffset(340, 700)
     panel.Position = UDim2.fromOffset(0, 0)
     panel.BackgroundTransparency = 1
     stroke.Transparency = 1
@@ -5241,7 +6074,7 @@ if hostPage then
     usernameBox.Visible = false
     applyAvatarButton.Visible = false
 else
-    panel.Size = UDim2.fromOffset(306, 620)
+    panel.Size = UDim2.fromOffset(306, 780)
 end
 
 local connections = {}
@@ -5284,9 +6117,15 @@ local function setStatus(message)
 end
 
 local social = createCloneSocialFeature({
-	Players = Players, Workspace = Workspace, player = player,
+	Players = Players, UserService = game:GetService("UserService"), Workspace = Workspace, player = player,
 	getClone = function() return clone end,
 	worldParent = folder, onStatus = setStatus,
+	onActorModel = function(index,model,shownName)
+		if type(integrationState) == "table"
+			and type(integrationState.SetDeveloperCompanionModel) == "function" then
+			integrationState.SetDeveloperCompanionModel(index,model,shownName)
+		end
+	end,
 })
 
 local function cameraTarget()
@@ -5395,7 +6234,11 @@ local function startControl()
 	verticalSpeed = 0
 	grounded = true
 	planarVelocity = Vector3.zero
-	if cameraFollow and poseMirror then cameraFollow.CFrame = poseMirror.anchor end
+	-- The camera target must follow position only. Rotating it with the avatar
+	-- feeds the backward key through the camera direction on the next frame.
+	if cameraFollow and poseMirror then
+		cameraFollow.CFrame = CFrame.new(poseMirror.anchor.Position)
+	end
 	jumpRequested = false
 	controlButton.Text = "Điều khiển bản sao: BẬT"
 	controlButton.BackgroundColor3 = Color3.fromRGB(155, 81, 194)
@@ -5607,8 +6450,9 @@ local function updateCloneMovement(dt)
 		integrationState.CloneMotion = motion
 	end
 	if cameraFollow then
-		cameraFollow.CFrame = cameraFollow.CFrame:Lerp(pose.anchor,
+		local position = cameraFollow.Position:Lerp(pose.anchor.Position,
 			1 - math.exp(-dt * 12))
+		cameraFollow.CFrame = CFrame.new(position)
 	end
 end
 
@@ -5617,7 +6461,7 @@ local function clearWorld()
 	awaitingClick = false
 	selectedPosition = nil
 	social:Stop()
-	socialButton.Text = "Tạo 2 bạn tương tác: TẮT"
+	socialButton.Text = "Nhân vật: TẮT"
 	if type(integrationState) == "table" and type(integrationState.SetDeveloperCloneModel) == "function" then
 		integrationState.SetDeveloperCloneModel(nil)
 	end
@@ -5744,7 +6588,21 @@ local function prepareCopy(copy)
 	end
 	local humanoid = copy:FindFirstChildOfClass("Humanoid")
 	if humanoid then
+		-- The clone is positioned and animated manually. Roblox's Humanoid state
+		-- machine otherwise turns torso collisions back on, so PopperCam zooms
+		-- into the clone whenever it moves between the camera and its subject.
+		humanoid.EvaluateStateMachine = false
 		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	end
+end
+
+local function clearCloneCollisions(copy)
+	for _, part in ipairs(copy:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = false
+			part.CanTouch = false
+			part.CanQuery = false
+		end
 	end
 end
 
@@ -6182,6 +7040,8 @@ local function createOrUpdateClone(autoView)
 				* controlledAnchor.Rotation
 		end
 		newCopy.Parent = folder
+		-- Parenting a Humanoid model can re-enable R15 torso collision once.
+		clearCloneCollisions(newCopy)
 	end)
 	if not ok then
 		if newCopy then
@@ -6201,9 +7061,13 @@ local function createOrUpdateClone(autoView)
 	end
 	if clone then clone:Destroy() end
 	clone = newCopy
+	task.spawn(function()
+		RunService.Heartbeat:Wait()
+		if clone == newCopy and newCopy.Parent then clearCloneCollisions(newCopy) end
+	end)
 	poseMirror = newPose
 	if type(integrationState) == "table" and type(integrationState.SetDeveloperCloneModel) == "function" then
-		integrationState.SetDeveloperCloneModel(newCopy)
+		integrationState.SetDeveloperCloneModel(newCopy,newPose.displayName)
 	end
 	if type(integrationState) == "table" and type(integrationState.SetMoonbloomCloneRoot) == "function" then
 		integrationState.SetMoonbloomCloneRoot(newPose.moonbloomRoot)
@@ -6219,7 +7083,7 @@ local function createOrUpdateClone(autoView)
 		cameraFollow.CanQuery = false
 		cameraFollow.Parent = folder
 	end
-	cameraFollow.CFrame = newPose.anchor
+	cameraFollow.CFrame = CFrame.new(newPose.anchor.Position)
 	pcall(syncClonePose)
 	if autoView or viewingClone then
 		local cameraOk, cameraResult = pcall(focusClone)
@@ -6305,15 +7169,25 @@ connect(RunService.RenderStepped, function(dt)
 	end
 end)
 
+local function refreshClonePanelHeight()
+	task.defer(function()
+		if closed then return end
+		local height = collapsed and 52 or math.max(700, layout.AbsoluteContentSize.Y + 24)
+		panel.Size = UDim2.fromOffset(hostPage and 340 or 306, height)
+		if hostPage then hostPage.CanvasSize = UDim2.fromOffset(0, height + 20) end
+	end)
+end
+connect(layout:GetPropertyChangedSignal("AbsoluteContentSize"), refreshClonePanelHeight)
 connect(collapseButton.MouseButton1Click, function()
 	collapsed = not collapsed
 	for _, item in ipairs({status, usernameBox, applyAvatarButton, placeButton, refreshButton,
-		viewButton, controlButton, socialNameA, socialNameB, socialButton,
+		viewButton, controlButton, socialNameA, socialNameB, socialApplyA.Parent,
+		socialApplyB.Parent, socialButton,
 		removeButton, closeButton, hint}) do
 		item.Visible = not collapsed
 	end
-	panel.Size = UDim2.fromOffset(hostPage and 340 or 306,
-		collapsed and 52 or 620)
+	for _, card in ipairs(companionCards) do card.frame.Visible = not collapsed and hasCompanionTitles end
+	refreshClonePanelHeight()
 	collapseButton.Text = collapsed and "+" or "−"
 end)
 
@@ -6434,16 +7308,93 @@ connect(controlButton.MouseButton1Click, function()
 		startControl()
 	end
 end)
+local function paintCompanionCard(index)
+	local card=companionCards[index]
+	local style=companionStyles[index]
+	local title={off="TẮT",developer="DEVELOPER",creator="CREATOR",display="TÊN HIỂN THỊ"}
+	card.header.Text="Danh hiệu bạn "..index..": "..(title[style.mode] or "TẮT")
+		..(card.expanded and "  ▲" or "  ▼")
+	card.colorCaption.Text=style.mode=="display" and "MÀU VAI TRÒ"
+		or "MÀU DANH HIỆU"
+	for field,buttons in pairs(card.groups) do
+		if field~="height" and field~="size" then
+			for value,button in pairs(buttons) do
+				local selected=field=="color" and style.mode=="display"
+					and style.roleColor or style[field]
+				button.TextTransparency=0
+				button.BackgroundColor3=selected==value and Color3.fromRGB(112,77,226)
+					or Color3.fromRGB(47,48,69)
+			end
+		end
+	end
+	card.groups.height.value.Text=string.format("+%.2f STUDS",style.height)
+	card.groups.size.value.Text=string.format("%d%%",math.floor(style.size*100+0.5))
+end
+for index,card in ipairs(companionCards) do
+	paintCompanionCard(index)
+	connect(card.header.MouseButton1Click,function()
+		card.expanded=not card.expanded
+		card.content.Visible=card.expanded
+		card.frame.Size=UDim2.new(1,0,0,card.expanded and 510 or 32)
+		paintCompanionCard(index)
+		refreshClonePanelHeight()
+	end)
+	for field,buttons in pairs(card.groups) do
+		for value,button in pairs(buttons) do
+			if value~="value" then
+				connect(button.MouseButton1Click,function()
+					local style=table.clone(companionStyles[index])
+					if field=="height" then
+						style.height=math.clamp(style.height+(value=="up" and 0.25 or -0.25),0,3)
+					elseif field=="size" then
+						style.size=math.clamp(math.floor((style.size+(value=="up" and 0.1 or -0.1))*10+0.5)/10,0.7,1.6)
+					elseif field=="color" and style.mode=="display" then
+						style.roleColor=value
+					else style[field]=value end
+					companionStyles[index]=style
+					integrationState.SetDeveloperCompanionStyle(index,style)
+					paintCompanionCard(index)
+					setStatus(field=="role" and style.mode~="display"
+						and "Vai trò chỉ hiện khi bạn "..index.." chọn TÊN HIỂN THỊ."
+						or "Đã chỉnh danh hiệu bạn "..index.." độc lập.")
+				end)
+			end
+		end
+	end
+end
+refreshClonePanelHeight()
+local socialPackKeys = {"default", "community", "aura"}
+local socialPackLabels = {"GỐC", "COMMUNITY", "AURA"}
+local selectedSocialPacks = {1, 1}
+local function applySocialActor(index, box)
+	box:ReleaseFocus(false)
+	if social:ApplyActor(index, box.Text) then
+		socialButton.Text = "Nhân vật: BẬT"
+	end
+end
+local function cycleSocialPack(index, button)
+	local selected = selectedSocialPacks[index] % #socialPackKeys + 1
+	selectedSocialPacks[index] = selected
+	button.Text = "Động tác " .. index .. ": " .. socialPackLabels[selected]
+	social:SetMotionPack(index, socialPackKeys[selected])
+end
+connect(socialApplyA.MouseButton1Click, function() applySocialActor(1, socialNameA) end)
+connect(socialApplyB.MouseButton1Click, function() applySocialActor(2, socialNameB) end)
+connect(socialPackA.MouseButton1Click, function() cycleSocialPack(1, socialPackA) end)
+connect(socialPackB.MouseButton1Click, function() cycleSocialPack(2, socialPackB) end)
 connect(socialButton.MouseButton1Click, function()
 	if social:IsActive() then
 		social:Stop()
-		socialButton.Text = "Tạo 2 bạn tương tác: TẮT"
+		socialButton.Text = "Nhân vật: TẮT"
 		return
 	end
 	socialNameA:ReleaseFocus(false)
 	socialNameB:ReleaseFocus(false)
 	if social:Start(socialNameA.Text, socialNameB.Text) then
-		socialButton.Text = "Tạo 2 bạn tương tác: BẬT"
+		for index=1,2 do
+			social:SetMotionPack(index, socialPackKeys[selectedSocialPacks[index]])
+		end
+		socialButton.Text = "Nhân vật: BẬT"
 	end
 end)
 connect(removeButton.MouseButton1Click, function()
