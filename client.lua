@@ -1286,17 +1286,30 @@ paintAutomation()
 for key,button in pairs(automationButtons) do
     on(button.MouseButton1Click,function()
         local enabled=not settings[key]
-        if key=="autoExecute" and enabled and not settingsPersistent then
-            setStatus("Auto Execute cần bản Potassium có lưu cài đặt.")
+        local needsDisk=key=="autoExecute" or key=="autoReconnect"
+        if needsDisk and not settingsPersistent then
+            setStatus(automationLabels[key].." cần Potassium lưu cài đặt vào file.")
             return
-        elseif key=="autoReconnect" and enabled then
-            if not settingsPersistent or not queueReconnect() then
-                setStatus("Auto Reconnect cần lưu cài đặt và queue_on_teleport của Potassium.")
-                return
-            end
         end
         settings[key]=enabled
-        persistSettings()
+        if needsDisk then
+            local saved=saveSettings()
+            badge.Text=saved and "SAVE" or "RAM"
+            if not saved then
+                settings[key]=not enabled
+                saveSettings()
+                setStatus("Không lưu được "..automationLabels[key].."; đã giữ cài đặt cũ.")
+                return
+            end
+            if key=="autoReconnect" and enabled and not queueReconnect() then
+                settings[key]=false
+                saveSettings()
+                setStatus("Auto Reconnect cần queue_on_teleport của Potassium.")
+                return
+            end
+        else
+            persistSettings()
+        end
         paintAutomation()
         setStatus(automationLabels[key]..(enabled and ": BẬT" or ": TẮT"))
     end)
