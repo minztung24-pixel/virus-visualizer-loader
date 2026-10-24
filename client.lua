@@ -65,7 +65,7 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
--- Call from a LocalScript for a local visual only. The vector blue check
+-- Call from a LocalScript for a local visual only. The decorative blue check
 -- does not change account verification.
 -- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
 -- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
@@ -93,7 +93,7 @@ local function createDeveloperNameplate(api)
 	local palette = {
 		blue = { text = Color3.fromRGB(0, 162, 255), accent = Color3.fromRGB(58, 158, 255), surface = Color3.fromRGB(12, 31, 59) },
 		sky = { text = Color3.fromRGB(132, 215, 255), accent = Color3.fromRGB(132, 215, 255), surface = Color3.fromRGB(17, 40, 60) },
-		navy = { text = Color3.fromRGB(36, 74, 222), accent = Color3.fromRGB(52, 97, 245), surface = Color3.fromRGB(15, 24, 70) },
+		navy = { text = Color3.fromRGB(32, 122, 248), accent = Color3.fromRGB(73, 154, 255), surface = Color3.fromRGB(15, 32, 69) },
 		red = { text = Color3.fromRGB(255, 44, 52), accent = Color3.fromRGB(255, 44, 52), surface = Color3.fromRGB(57, 19, 32) },
 		yellow = { text = Color3.fromRGB(255, 213, 77), accent = Color3.fromRGB(255, 209, 74), surface = Color3.fromRGB(54, 41, 18) },
 	}
@@ -118,6 +118,31 @@ local function createDeveloperNameplate(api)
 	}
 	local destroyed = false
 	local feature = {}
+	local badgeAsset = "rbxassetid://131402628625514"
+	local badgeReady = false
+	local function useOriginalBadge(badge)
+		badge.Image = badgeAsset
+		badge.ImageRectOffset = Vector2.new(311, 326)
+		badge.ImageRectSize = Vector2.new(391, 390)
+	end
+	task.spawn(function()
+		local probe = Instance.new("ImageLabel")
+		probe.Image = badgeAsset
+		local fetched = false
+		pcall(function()
+			game:GetService("ContentProvider"):PreloadAsync({probe}, function(asset, status)
+				if asset == badgeAsset and status == Enum.AssetFetchStatus.Success then
+					fetched = true
+				end
+			end)
+		end)
+		probe:Destroy()
+		if destroyed or not fetched then return end
+		badgeReady = true
+		for _, entry in pairs(entries) do
+			if entry.badge and entry.badge.Parent then useOriginalBadge(entry.badge) end
+		end
+	end)
 	local function companionStyle(entry)
 		return entry and companionStyles[entry.key] or nil
 	end
@@ -196,36 +221,19 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function makeCheck(gui)
-		local badge = Instance.new("Frame")
+		local badge = Instance.new("ImageLabel")
 		badge.Name = "DecorativeBlueCheck"
-		badge.BackgroundColor3 = Color3.fromRGB(36, 91, 242)
+		badge.BackgroundTransparency = 1
 		badge.BorderSizePixel = 0
 		badge.Position = UDim2.fromScale(0.82, 0.15)
 		badge.Size = UDim2.fromScale(0.13, 0.70)
-		badge.Rotation = 12
+		badge.Image = "rbxasset://textures/ui/VerifiedBadgeNameIcon.png"
+		badge.ImageColor3 = Color3.fromRGB(255, 255, 255)
+		badge.ScaleType = Enum.ScaleType.Fit
 		badge.ZIndex = 10
 		badge.Visible = true
 		badge.Parent = gui
-		local corners = Instance.new("UICorner")
-		corners.CornerRadius = UDim.new(0.18, 0)
-		corners.Parent = badge
-		local function segment(name, x, y, width, angle)
-			local line = Instance.new("Frame")
-			line.Name = name
-			line.AnchorPoint = Vector2.new(0.5, 0.5)
-			line.Position = UDim2.fromScale(x, y)
-			line.Size = UDim2.fromScale(width, 0.15)
-			line.Rotation = angle
-			line.BorderSizePixel = 0
-			line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			line.ZIndex = 11
-			line.Parent = badge
-			local rounded = Instance.new("UICorner")
-			rounded.CornerRadius = UDim.new(1, 0)
-			rounded.Parent = line
-		end
-		segment("CheckShort", 0.35, 0.57, 0.32, 45)
-		segment("CheckLong", 0.59, 0.45, 0.58, -45)
+		if badgeReady then useOriginalBadge(badge) end
 		return badge
 	end
 
@@ -241,17 +249,23 @@ local function createDeveloperNameplate(api)
 		local ok, boundsCFrame, boundsSize = pcall(function()
 			return visual:GetBoundingBox()
 		end)
+		local boundsTop
 		if ok then
-			lift = math.max(lift, boundsCFrame.Position.Y + boundsSize.Y * 0.5
-				- entry.anchor.Position.Y + 0.3)
+			boundsTop = boundsCFrame.Position.Y + boundsSize.Y * 0.5
+				- entry.anchor.Position.Y
+			lift = math.max(lift, boundsTop + 0.3)
 		end
 		local mode = style and style.mode or entry == entries.clone
 			and cloneTitleMode ~= "follow" and cloneTitleMode or titleMode
 		local role = style and style.role or entry == entries.clone
 			and cloneRoleMode ~= "follow" and cloneRoleMode or roleMode
 		local stacked = mode == "display" and role ~= "off"
-		entry.gui.StudsOffsetWorldSpace = Vector3.new(0,
-			lift + (style and style.height or height) + (stacked and 0.2 or 0), 0)
+		local offset = lift + (style and style.height or height) + (stacked and 0.2 or 0)
+		local humanoid = entry.model:FindFirstChildOfClass("Humanoid")
+		if mode == "display" and humanoid and humanoid.RigType == Enum.HumanoidRigType.R15 then
+			offset = math.max(offset - 0.35, (boundsTop or lift - 0.3) + 0.2)
+		end
+		entry.gui.StudsOffsetWorldSpace = Vector3.new(0, offset, 0)
 	end
 
 	local function updateStyle(entry)
@@ -576,6 +590,7 @@ local function createVisualizerSettings(api)
         developerDeveloperShine="white",
         cloneTitleMode="follow",cloneRole="follow",
         companionTitles={companionDefaults(),companionDefaults()},
+        companionUsernames={"",""},companionPacks={"default","default"},
         developerShineDirection="right",developerHeight=0.75,developerSize=1,
         page="avatar",collapsed=false}
     local disk=type(api.readfile)=="function" and type(api.writefile)=="function"
@@ -634,6 +649,23 @@ local function createVisualizerSettings(api)
                             style.height=math.clamp(saved.height,0,3) end
                         if type(saved.size)=="number" and saved.size==saved.size then
                             style.size=math.clamp(saved.size,0.7,1.6) end
+                    end
+                end
+            end
+            if type(value.companionUsernames)=="table" then
+                for index=1,2 do
+                    local name=value.companionUsernames[index]
+                    if type(name)=="string" and (name==""
+                        or (#name>=3 and #name<=20 and name:match("^[%w_]+$"))) then
+                        data.companionUsernames[index]=name
+                    end
+                end
+            end
+            if type(value.companionPacks)=="table" then
+                for index=1,2 do
+                    local pack=value.companionPacks[index]
+                    if pack=="default" or pack=="community" or pack=="aura" then
+                        data.companionPacks[index]=pack
                     end
                 end
             end
@@ -880,7 +912,7 @@ local developerColorCaption=makeText(developerCard,"MÀU DANH HIỆU",12,172,316
 local developerColors={}
 for index,entry in ipairs({{"blue","XANH SÁNG",Color3.fromRGB(0,140,235)},
     {"sky","XANH TRỜI",Color3.fromRGB(79,190,255)},
-    {"navy","XANH DƯƠNG ĐẬM",Color3.fromRGB(36,74,222)},
+    {"navy","XANH DƯƠNG ĐẬM",Color3.fromRGB(32,122,248)},
     {"red","ĐỎ",Color3.fromRGB(231,72,83)},
     {"yellow","VÀNG",Color3.fromRGB(239,181,54)}}) do
     local topRow=index<=3
@@ -1021,6 +1053,33 @@ state.SetDeveloperCompanionStyle=function(index,style)
     developerNameplate:SetCompanionStyle(index,style)
     settings.companionTitles[index]=style
     persistSettings()
+end
+state.GetCompanionPreferences=function(index)
+    if index~=1 and index~=2 then return "","default" end
+    return settings.companionUsernames[index],settings.companionPacks[index]
+end
+state.SetCompanionUsername=function(index,raw)
+    if (index~=1 and index~=2) or type(raw)~="string" then return false end
+    local name=raw:match("^%s*(.-)%s*$"):gsub("^@","")
+    if name~="" and (#name<3 or #name>20 or not name:match("^[%w_]+$")) then
+        return false
+    end
+    if settings.companionUsernames[index]~=name then
+        settings.companionUsernames[index]=name
+        persistSettings()
+    end
+    return true
+end
+state.SetCompanionPack=function(index,pack)
+    if (index~=1 and index~=2)
+        or (pack~="default" and pack~="community" and pack~="aura") then
+        return false
+    end
+    if settings.companionPacks[index]~=pack then
+        settings.companionPacks[index]=pack
+        persistSettings()
+    end
+    return true
 end
 local function watchRealDisplayName(character)
     local humanoid=character and (character:FindFirstChildOfClass("Humanoid")
@@ -6092,6 +6151,17 @@ end
 local companionCards={makeCompanionTitleCard(1,11)}
 local socialNameB = makeSocialNameBox("SocialUsername2", 12, "@username bạn thứ hai")
 local socialApplyB,socialPackB=makeSocialActionRow("Friend2",13,"Apply bạn 2","Động tác 2: GỐC")
+local savedCompanionPacks={"default","default"}
+if type(integrationState)=="table"
+    and type(integrationState.GetCompanionPreferences)=="function" then
+    for index,box in ipairs({socialNameA,socialNameB}) do
+        local name,pack=integrationState.GetCompanionPreferences(index)
+        if type(name)=="string" then box.Text=name end
+        if pack=="default" or pack=="community" or pack=="aura" then
+            savedCompanionPacks[index]=pack
+        end
+    end
+end
 companionCards[2]=makeCompanionTitleCard(2,14)
 local socialButton = makeButton("Social", 15, "Nhân vật: TẮT", Color3.fromRGB(67, 102, 161))
 local removeButton = makeButton("Remove", 16, "Xóa bản sao", Color3.fromRGB(95, 48, 87))
@@ -7350,7 +7420,7 @@ local function paintCompanionCard(index)
 	local colorChoices={
 		blue={"XANH SÁNG",Color3.fromRGB(0,140,235)},
 		sky={"XANH TRỜI",Color3.fromRGB(79,190,255)},
-		navy={"XANH DƯƠNG ĐẬM",Color3.fromRGB(36,74,222)},
+		navy={"XANH DƯƠNG ĐẬM",Color3.fromRGB(32,122,248)},
 		red={"ĐỎ",Color3.fromRGB(231,72,83)},
 		yellow={"VÀNG",Color3.fromRGB(239,181,54)},
 	}
@@ -7420,8 +7490,29 @@ refreshClonePanelHeight()
 local socialPackKeys = {"default", "community", "aura"}
 local socialPackLabels = {"GỐC", "COMMUNITY", "AURA"}
 local selectedSocialPacks = {1, 1}
+for index,button in ipairs({socialPackA,socialPackB}) do
+    for choice,key in ipairs(socialPackKeys) do
+        if key==savedCompanionPacks[index] then
+            selectedSocialPacks[index]=choice
+            button.Text="Động tác "..index..": "..socialPackLabels[choice]
+            social:SetMotionPack(index,key)
+            break
+        end
+    end
+end
+local function rememberSocialName(index,box)
+    if type(integrationState)=="table"
+        and type(integrationState.SetCompanionUsername)=="function" then
+        return integrationState.SetCompanionUsername(index,box.Text)
+    end
+    return true
+end
 local function applySocialActor(index, box)
 	box:ReleaseFocus(false)
+	if not rememberSocialName(index,box) then
+		setStatus("Username Roblox không hợp lệ (3–20 ký tự).")
+		return
+	end
 	if social:ApplyActor(index, box.Text) then
 		socialButton.Text = "Nhân vật: BẬT"
 	end
@@ -7431,7 +7522,13 @@ local function cycleSocialPack(index, button)
 	selectedSocialPacks[index] = selected
 	button.Text = "Động tác " .. index .. ": " .. socialPackLabels[selected]
 	social:SetMotionPack(index, socialPackKeys[selected])
+	if type(integrationState)=="table"
+		and type(integrationState.SetCompanionPack)=="function" then
+		integrationState.SetCompanionPack(index,socialPackKeys[selected])
+	end
 end
+connect(socialNameA.FocusLost,function() rememberSocialName(1,socialNameA) end)
+connect(socialNameB.FocusLost,function() rememberSocialName(2,socialNameB) end)
 connect(socialApplyA.MouseButton1Click, function() applySocialActor(1, socialNameA) end)
 connect(socialApplyB.MouseButton1Click, function() applySocialActor(2, socialNameB) end)
 connect(socialPackA.MouseButton1Click, function() cycleSocialPack(1, socialPackA) end)
@@ -7444,6 +7541,10 @@ connect(socialButton.MouseButton1Click, function()
 	end
 	socialNameA:ReleaseFocus(false)
 	socialNameB:ReleaseFocus(false)
+	if not rememberSocialName(1,socialNameA) or not rememberSocialName(2,socialNameB) then
+		setStatus("Username Roblox không hợp lệ (3–20 ký tự).")
+		return
+	end
 	if social:Start(socialNameA.Text, socialNameB.Text) then
 		for index=1,2 do
 			social:SetMotionPack(index, socialPackKeys[selectedSocialPacks[index]])
