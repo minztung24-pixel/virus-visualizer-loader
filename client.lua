@@ -65,8 +65,8 @@ if env.__giftPlayerListMask then
     for _, connection in ipairs(env.__giftPlayerListMask) do connection:Disconnect() end
     env.__giftPlayerListMask = nil
 end
--- Call from a LocalScript for a local visual only. The blue check uses the
--- Roblox client texture; it does not change account verification.
+-- Call from a LocalScript for a local visual only. The vector blue check
+-- does not change account verification.
 -- Required api fields: Instance, UDim2, Color3, Enum, and TweenService.
 -- UDim, TweenInfo, Vector2, Vector3, and ColorSequence are Roblox globals.
 -- RunService is not needed.
@@ -93,6 +93,7 @@ local function createDeveloperNameplate(api)
 	local palette = {
 		blue = { text = Color3.fromRGB(0, 162, 255), accent = Color3.fromRGB(58, 158, 255), surface = Color3.fromRGB(12, 31, 59) },
 		sky = { text = Color3.fromRGB(132, 215, 255), accent = Color3.fromRGB(132, 215, 255), surface = Color3.fromRGB(17, 40, 60) },
+		navy = { text = Color3.fromRGB(36, 74, 222), accent = Color3.fromRGB(52, 97, 245), surface = Color3.fromRGB(15, 24, 70) },
 		red = { text = Color3.fromRGB(255, 44, 52), accent = Color3.fromRGB(255, 44, 52), surface = Color3.fromRGB(57, 19, 32) },
 		yellow = { text = Color3.fromRGB(255, 213, 77), accent = Color3.fromRGB(255, 209, 74), surface = Color3.fromRGB(54, 41, 18) },
 	}
@@ -195,19 +196,36 @@ local function createDeveloperNameplate(api)
 	end
 
 	local function makeCheck(gui)
-		local badge = Instance.new("ImageLabel")
+		local badge = Instance.new("Frame")
 		badge.Name = "DecorativeBlueCheck"
-		badge.BackgroundTransparency = 1
+		badge.BackgroundColor3 = Color3.fromRGB(36, 91, 242)
 		badge.BorderSizePixel = 0
 		badge.Position = UDim2.fromScale(0.82, 0.15)
 		badge.Size = UDim2.fromScale(0.13, 0.70)
-		badge.Image = "rbxasset://textures/ui/VerifiedBadgeNameIcon.png"
-		badge.ImageColor3 = Color3.fromRGB(255, 255, 255)
-		badge.ImageTransparency = 0
-		badge.ScaleType = Enum.ScaleType.Fit
+		badge.Rotation = 12
 		badge.ZIndex = 10
 		badge.Visible = true
 		badge.Parent = gui
+		local corners = Instance.new("UICorner")
+		corners.CornerRadius = UDim.new(0.18, 0)
+		corners.Parent = badge
+		local function segment(name, x, y, width, angle)
+			local line = Instance.new("Frame")
+			line.Name = name
+			line.AnchorPoint = Vector2.new(0.5, 0.5)
+			line.Position = UDim2.fromScale(x, y)
+			line.Size = UDim2.fromScale(width, 0.15)
+			line.Rotation = angle
+			line.BorderSizePixel = 0
+			line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			line.ZIndex = 11
+			line.Parent = badge
+			local rounded = Instance.new("UICorner")
+			rounded.CornerRadius = UDim.new(1, 0)
+			rounded.Parent = line
+		end
+		segment("CheckShort", 0.35, 0.57, 0.32, 45)
+		segment("CheckLong", 0.59, 0.45, 0.58, -45)
 		return badge
 	end
 
@@ -279,6 +297,8 @@ local function createDeveloperNameplate(api)
 		entry.badge.Size = UDim2.fromScale(0.13, stacked and 0.40 or 0.70)
 		entry.roleLabel.Visible = stacked
 		entry.roleGradient.Enabled = stacked
+		entry.roleLabel.Position = UDim2.fromScale(role == "developer" and 0.07 or 0.22, 0)
+		entry.roleLabel.Size = UDim2.fromScale(role == "developer" and 0.86 or 0.56, 0.40)
 		if isDisplay then
 			if entry.shineTween then entry.shineTween:Cancel() end
 			if stacked then
@@ -598,9 +618,9 @@ local function createVisualizerSettings(api)
                             or saved.mode=="display" then style.mode=saved.mode end
                         if saved.role=="off" or saved.role=="owner" or saved.role=="admin"
                             or saved.role=="developer" then style.role=saved.role end
-                        if saved.color=="blue" or saved.color=="sky" or saved.color=="red"
+                        if saved.color=="blue" or saved.color=="sky" or saved.color=="navy" or saved.color=="red"
                             or saved.color=="yellow" then style.color=saved.color end
-                        if saved.roleColor=="blue" or saved.roleColor=="sky"
+                        if saved.roleColor=="blue" or saved.roleColor=="sky" or saved.roleColor=="navy"
                             or saved.roleColor=="red" or saved.roleColor=="yellow" then
                             style.roleColor=saved.roleColor end
                         for _,field in ipairs({"ownerShine","adminShine","developerShine"}) do
@@ -629,12 +649,12 @@ local function createVisualizerSettings(api)
                     data[entry[1]]=selected
                 end
             end
-            if value.developerColor=="blue" or value.developerColor=="sky" or value.developerColor=="red"
+            if value.developerColor=="blue" or value.developerColor=="sky" or value.developerColor=="navy" or value.developerColor=="red"
                 or value.developerColor=="yellow" then data.developerColor=value.developerColor end
             if type(value.developerRoleColors)=="table" then
                 for _,role in ipairs({"owner","admin","developer"}) do
                     local selected=value.developerRoleColors[role]
-                    if selected=="blue" or selected=="sky" or selected=="red"
+                    if selected=="blue" or selected=="sky" or selected=="navy" or selected=="red"
                         or selected=="yellow" then data.developerRoleColors[role]=selected end
                 end
             end
@@ -835,7 +855,7 @@ makeText(moonCard,"MOONBLOOM TRAIL",12,9,310,21,12,theme.text)
 local moonButton=makeButton(moonCard,"Moonbloom Trail: TẮT",12,43,316,31,Color3.fromRGB(69,58,94))
 makeText(effectsPage,"Bấm lại gói đang chọn để tắt.",0,365,340,20,11,theme.muted)
 section(effectsPage,"DANH HIỆU NHÂN VẬT",396)
-local developerCard=surface(effectsPage,423,619)
+local developerCard=surface(effectsPage,423,655)
 makeText(developerCard,"Danh hiệu / tên hiển thị  •  tích xanh",12,9,316,21,12,theme.text)
 local developerToggle=makeButton(developerCard,"Danh hiệu: TẮT",12,37,316,32,Color3.fromRGB(69,58,94))
 developerToggle.Name="DeveloperToggle"
@@ -858,12 +878,16 @@ for index,entry in ipairs({{"off","KHÔNG"},{"owner","OWNER"},
 end
 local developerColorCaption=makeText(developerCard,"MÀU DANH HIỆU",12,172,316,18,10,theme.muted)
 local developerColors={}
-for index,entry in ipairs({{"blue","XANH ĐẬM",Color3.fromRGB(0,140,235)},
+for index,entry in ipairs({{"blue","XANH SÁNG",Color3.fromRGB(0,140,235)},
     {"sky","XANH TRỜI",Color3.fromRGB(79,190,255)},
+    {"navy","XANH DƯƠNG ĐẬM",Color3.fromRGB(36,74,222)},
     {"red","ĐỎ",Color3.fromRGB(231,72,83)},
     {"yellow","VÀNG",Color3.fromRGB(239,181,54)}}) do
-    local button=makeButton(developerCard,entry[2],12+(index-1)*79,194,73,31,entry[3])
-    button.TextSize=9
+    local topRow=index<=3
+    local button=makeButton(developerCard,entry[2],
+        topRow and 12+(index-1)*107 or 12+(index-4)*164,
+        topRow and 194 or 230,topRow and 102 or 152,31,entry[3])
+    button.TextSize=entry[1]=="navy" and 8 or 10
     if entry[1]=="sky" or entry[1]=="yellow" then
         button.TextColor3=Color3.fromRGB(24,30,42)
     end
@@ -871,7 +895,7 @@ for index,entry in ipairs({{"blue","XANH ĐẬM",Color3.fromRGB(0,140,235)},
 end
 local roleShineButtons={owner={},admin={},developer={}}
 for roleIndex,role in ipairs({"owner","admin","developer"}) do
-    local y=233+(roleIndex-1)*59
+    local y=269+(roleIndex-1)*59
     makeText(developerCard,"VỆT SÁNG "..role:upper(),12,y,316,18,10,theme.muted)
     for index,entry in ipairs({{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}}) do
         local button=makeButton(developerCard,entry[2],12+(index-1)*107,y+21,102,30,theme.card)
@@ -880,21 +904,21 @@ for roleIndex,role in ipairs({"owner","admin","developer"}) do
         roleShineButtons[role][entry[1]]=button
     end
 end
-makeText(developerCard,"HƯỚNG VỆT SÁNG",12,410,316,18,10,theme.muted)
-local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,431,152,31,theme.card)
-local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,431,152,31,theme.card)
+makeText(developerCard,"HƯỚNG VỆT SÁNG",12,446,316,18,10,theme.muted)
+local shineRightButton=makeButton(developerCard,"TRÁI → PHẢI",12,467,152,31,theme.card)
+local shineLeftButton=makeButton(developerCard,"PHẢI → TRÁI",176,467,152,31,theme.card)
 shineRightButton.TextSize=11; shineLeftButton.TextSize=11
-makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,471,316,18,10,theme.muted)
-local heightDownButton=makeButton(developerCard,"−",12,493,69,32,theme.card)
-local heightValue=makeText(developerCard,"",91,495,155,27,13,theme.text)
+makeText(developerCard,"ĐỘ CAO TRÊN ĐẦU",12,507,316,18,10,theme.muted)
+local heightDownButton=makeButton(developerCard,"−",12,529,69,32,theme.card)
+local heightValue=makeText(developerCard,"",91,531,155,27,13,theme.text)
 heightValue.TextXAlignment=Enum.TextXAlignment.Center
-local heightUpButton=makeButton(developerCard,"+",258,493,70,32,theme.card)
-makeText(developerCard,"CỠ CHỮ",12,532,316,18,10,theme.muted)
-local sizeDownButton=makeButton(developerCard,"−",12,554,69,32,theme.card)
-local sizeValue=makeText(developerCard,"",91,556,155,27,13,theme.text)
+local heightUpButton=makeButton(developerCard,"+",258,529,70,32,theme.card)
+makeText(developerCard,"CỠ CHỮ",12,568,316,18,10,theme.muted)
+local sizeDownButton=makeButton(developerCard,"−",12,590,69,32,theme.card)
+local sizeValue=makeText(developerCard,"",91,592,155,27,13,theme.text)
 sizeValue.TextXAlignment=Enum.TextXAlignment.Center
-local sizeUpButton=makeButton(developerCard,"+",258,554,70,32,theme.card)
-makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,594,316,18,10,theme.muted)
+local sizeUpButton=makeButton(developerCard,"+",258,590,70,32,theme.card)
+makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,630,316,18,10,theme.muted)
 local woodButton=makeButton(weaponPage,"Gậy gỗ / hình gốc",0,364,340,30,theme.card)
 local statusBar=Instance.new("Frame"); statusBar.Name="StatusBar"
 statusBar.BackgroundColor3=Color3.fromRGB(27,29,40); statusBar.BorderSizePixel=0
@@ -1015,7 +1039,7 @@ on(localPlayer:GetPropertyChangedSignal("DisplayName"),function()
     end
 end)
 local developerColorStrokes={}
-local developerColorLabels={blue="XANH ĐẬM",sky="XANH TRỜI",red="ĐỎ",yellow="VÀNG"}
+local developerColorLabels={blue="XANH SÁNG",sky="XANH TRỜI",navy="XANH DƯƠNG ĐẬM",red="ĐỎ",yellow="VÀNG"}
 for key,button in pairs(developerColors) do
     local stroke=Instance.new("UIStroke")
     stroke.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
@@ -5998,7 +6022,7 @@ local function makeCompanionTitleCard(index,order)
 	local content=Instance.new("Frame")
 	content.Name="Options"
 	content.Position=UDim2.fromOffset(0,34)
-	content.Size=UDim2.new(1,0,0,474)
+		content.Size=UDim2.new(1,0,0,509)
 	content.BackgroundColor3=Color3.fromRGB(32,29,50)
 	content.BorderSizePixel=0
 	content.Visible=false
@@ -6020,18 +6044,30 @@ local function makeCompanionTitleCard(index,order)
 		local count=#choices
 		local width=(282-(count-1)*4)/count
 		for choiceIndex,choice in ipairs(choices) do
+			local colorRow=key=="color" and count==5
+			local topRow=not colorRow or choiceIndex<=3
+			local buttonWidth=colorRow and (topRow and 91 or 139) or width
+			local buttonX=colorRow and (topRow and 8+(choiceIndex-1)*95
+				or 8+(choiceIndex-4)*143) or 8+(choiceIndex-1)*(width+4)
 			local button=Instance.new("TextButton")
 			button.Name=key.."_"..choice[1]
-			button.Position=UDim2.fromOffset(8+(choiceIndex-1)*(width+4),y+16)
-			button.Size=UDim2.fromOffset(width,27)
+			button.Position=UDim2.fromOffset(buttonX,y+16+(colorRow and not topRow and 31 or 0))
+			button.Size=UDim2.fromOffset(buttonWidth,27)
 			button.BackgroundColor3=Color3.fromRGB(47,48,69)
 			button.BorderSizePixel=0
 			button.Text=choice[2]
 			button.TextColor3=Color3.fromRGB(244,246,255)
-			button.TextSize=count==4 and 9 or 10
+			button.TextSize=colorRow and choice[1]=="navy" and 8 or count==4 and 9 or 10
 			button.Font=Enum.Font.GothamMedium
 			button.Parent=content
 			local corner=Instance.new("UICorner"); corner.CornerRadius=UDim.new(0,5); corner.Parent=button
+			if key=="color" then
+				local border=Instance.new("UIStroke")
+				border.Name="SelectedBorder"
+				border.ApplyStrokeMode=Enum.ApplyStrokeMode.Border
+				border.Color=Color3.fromRGB(255,255,255)
+				border.Parent=button
+			end
 			groups[key][choice[1]]=button
 		end
 		return label
@@ -6039,17 +6075,17 @@ local function makeCompanionTitleCard(index,order)
 	row("mode","DANH HIỆU / TÊN HIỂN THỊ",5,{{"off","TẮT"},{"developer","DEVELOPER"},{"creator","CREATOR"},{"display","TÊN HIỂN THỊ"}})
 	row("role","VAI TRÒ TRÊN TÊN",55,{{"off","KHÔNG"},{"owner","OWNER"},
 		{"admin","ADMIN"},{"developer","DEVELOPER"}})
-	local colorCaption=row("color","MÀU DANH HIỆU / VAI TRÒ",105,{{"blue","XANH ĐẬM"},{"sky","XANH TRỜI"},{"red","ĐỎ"},{"yellow","VÀNG"}})
-	row("ownerShine","VỆT SÁNG OWNER",155,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("adminShine","VỆT SÁNG ADMIN",205,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("developerShine","VỆT SÁNG DEVELOPER",255,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
-	row("direction","HƯỚNG VỆT SÁNG",305,{{"right","TRÁI → PHẢI"},{"left","PHẢI → TRÁI"}})
+	local colorCaption=row("color","MÀU DANH HIỆU / VAI TRÒ",105,{{"blue","XANH SÁNG"},{"sky","XANH TRỜI"},{"navy","XANH DƯƠNG ĐẬM"},{"red","ĐỎ"},{"yellow","VÀNG"}})
+	row("ownerShine","VỆT SÁNG OWNER",190,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("adminShine","VỆT SÁNG ADMIN",240,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("developerShine","VỆT SÁNG DEVELOPER",290,{{"white","TRẮNG"},{"yellow","VÀNG"},{"red","ĐỎ"}})
+	row("direction","HƯỚNG VỆT SÁNG",340,{{"right","TRÁI → PHẢI"},{"left","PHẢI → TRÁI"}})
 	local function stepper(key,caption,y)
 		row(key,caption,y,{{"down","−"},{"value",""},{"up","+"}})
 		groups[key].value.AutoButtonColor=false
 	end
-	stepper("height","ĐỘ CAO TRÊN ĐẦU",355)
-	stepper("size","CỠ CHỮ",405)
+	stepper("height","ĐỘ CAO TRÊN ĐẦU",390)
+	stepper("size","CỠ CHỮ",440)
 	return {frame=card,header=header,content=content,groups=groups,
 		colorCaption=colorCaption,expanded=false,index=index}
 end
@@ -7311,6 +7347,13 @@ end)
 local function paintCompanionCard(index)
 	local card=companionCards[index]
 	local style=companionStyles[index]
+	local colorChoices={
+		blue={"XANH SÁNG",Color3.fromRGB(0,140,235)},
+		sky={"XANH TRỜI",Color3.fromRGB(79,190,255)},
+		navy={"XANH DƯƠNG ĐẬM",Color3.fromRGB(36,74,222)},
+		red={"ĐỎ",Color3.fromRGB(231,72,83)},
+		yellow={"VÀNG",Color3.fromRGB(239,181,54)},
+	}
 	local title={off="TẮT",developer="DEVELOPER",creator="CREATOR",display="TÊN HIỂN THỊ"}
 	card.header.Text="Danh hiệu bạn "..index..": "..(title[style.mode] or "TẮT")
 		..(card.expanded and "  ▲" or "  ▼")
@@ -7322,8 +7365,19 @@ local function paintCompanionCard(index)
 				local selected=field=="color" and style.mode=="display"
 					and style.roleColor or style[field]
 				button.TextTransparency=0
-				button.BackgroundColor3=selected==value and Color3.fromRGB(112,77,226)
-					or Color3.fromRGB(47,48,69)
+				if field=="color" then
+					local choice=colorChoices[value]
+					button.BackgroundColor3=choice[2]
+					button.Text=(selected==value and "✓ " or "")..choice[1]
+					button.TextColor3=(value=="sky" or value=="yellow")
+						and Color3.fromRGB(24,30,42) or Color3.fromRGB(255,255,255)
+					local border=button:FindFirstChild("SelectedBorder")
+					border.Thickness=selected==value and 2 or 1
+					border.Transparency=selected==value and 0 or 0.72
+				else
+					button.BackgroundColor3=selected==value and Color3.fromRGB(112,77,226)
+						or Color3.fromRGB(47,48,69)
+				end
 			end
 		end
 	end
@@ -7335,7 +7389,7 @@ for index,card in ipairs(companionCards) do
 	connect(card.header.MouseButton1Click,function()
 		card.expanded=not card.expanded
 		card.content.Visible=card.expanded
-		card.frame.Size=UDim2.new(1,0,0,card.expanded and 510 or 32)
+		card.frame.Size=UDim2.new(1,0,0,card.expanded and 545 or 32)
 		paintCompanionCard(index)
 		refreshClonePanelHeight()
 	end)
