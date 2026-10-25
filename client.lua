@@ -598,7 +598,7 @@ local function createVisualizerSettings(api)
         companionUsernames={"",""},companionPacks={"default","default"},
         developerShineDirection="right",developerHeight=0.75,developerSize=1,
         page="avatar",collapsed=false,
-        autoExecute=false,autoReconnect=false,showStatus=true,antiAfk=false}
+        autoExecute=api.env and api.env.__THTItemVisualizerAutoStarted==true or false}
     local disk=type(api.readfile)=="function" and type(api.writefile)=="function"
     local raw
     if disk then
@@ -709,9 +709,7 @@ local function createVisualizerSettings(api)
                 data.developerSize=math.clamp(value.developerSize,0.7,1.6) end
             if value.page=="avatar" or value.page=="weapons" or value.page=="effects" or value.page=="clone" then data.page=value.page end
             if type(value.collapsed)=="boolean" then data.collapsed=value.collapsed end
-            for _,field in ipairs({"autoExecute","autoReconnect","showStatus","antiAfk"}) do
-                if type(value[field])=="boolean" then data[field]=value[field] end
-            end
+            if type(value.autoExecute)=="boolean" then data.autoExecute=value.autoExecute end
         end
     end
     local function save()
@@ -839,7 +837,7 @@ for index,entry in ipairs({{"avatar","AVATAR"},{"weapons","VŨ KHÍ"},{"effects"
     if id=="effects" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
         page.ScrollBarImageColor3=Color3.fromRGB(124,103,199)
-        page.CanvasSize=UDim2.fromOffset(0,1480)
+        page.CanvasSize=UDim2.fromOffset(0,1410)
         page.ScrollingDirection=Enum.ScrollingDirection.Y
     elseif id=="clone" then
         page.BorderSizePixel=0; page.ScrollBarThickness=4
@@ -972,23 +970,21 @@ sizeValue.TextXAlignment=Enum.TextXAlignment.Center
 local sizeUpButton=makeButton(developerCard,"+",258,722,70,32,theme.card)
 makeText(developerCard,"Hiện trên người thật và bản sao • chỉ máy bạn",12,762,316,18,10,theme.muted)
 section(effectsPage,"TRẠNG THÁI",1220)
-local automationCard=surface(effectsPage,1247,205)
-local automationButtons={}
-for index,entry in ipairs({{"autoExecute","Auto Execute"},
-    {"autoReconnect","Auto Reconnect"},{"showStatus","Show Status"},
-    {"antiAfk","Anti-AFK"}}) do
-    local button=makeButton(automationCard,entry[2],12,10+(index-1)*47,316,37,theme.card)
-    button.Name="Automation_"..entry[1]
-    button.TextXAlignment=Enum.TextXAlignment.Left
-    button.TextSize=12
-    automationButtons[entry[1]]=button
-end
+local automationCard=surface(effectsPage,1247,137)
+local autoExecuteButton=makeButton(automationCard,"Auto Execute",12,10,316,37,theme.card)
+autoExecuteButton.Name="Automation_autoExecute"
+autoExecuteButton.TextXAlignment=Enum.TextXAlignment.Left
+autoExecuteButton.TextSize=12
+local autoExecuteLinkButton=makeButton(automationCard,"Sao chép link file autoexec",12,53,316,30,theme.card)
+autoExecuteLinkButton.Name="AutoExecuteInstallLink"
+autoExecuteLinkButton.TextSize=10
+makeText(automationCard,"Mỗi máy cài file autoexec một lần.",12,91,316,17,10,theme.muted)
+makeText(automationCard,"Bật ở đây cho game đang chơi.",12,109,316,17,10,theme.muted)
 local woodButton=makeButton(weaponPage,"Gậy gỗ / hình gốc",0,364,340,30,theme.card)
 local statusBar=Instance.new("Frame"); statusBar.Name="StatusBar"
 statusBar.BackgroundColor3=Color3.fromRGB(27,29,40); statusBar.BorderSizePixel=0
 statusBar.Position=UDim2.fromOffset(10,466); statusBar.Size=UDim2.fromOffset(340,27)
 statusBar.ZIndex=22; statusBar.Parent=body; corner(statusBar,7)
-statusBar.Visible=settings.showStatus
 makeText(statusBar,"•",8,4,12,18,13,Color3.fromRGB(154,129,255))
 local status=makeText(statusBar,"Sẵn sàng",24,4,306,19,10,theme.muted)
 showMenuPage(settings.page)
@@ -1240,93 +1236,40 @@ for key,button in pairs(developerColors) do
             ..": "..developerColorLabels[key])
     end)
 end
-local loaderUrl="https://raw.githubusercontent.com/minztung24-pixel/virus-visualizer-loader/main/client.lua"
-local autoBootCode=([[
-if game.PlaceId ~= %d then return end
-if not game:IsLoaded() then game.Loaded:Wait() end
-local env=type(getgenv)=="function" and getgenv() or _G
-if env.__THTItemVisualizerAutoStarted
-    or (env.__giftPlayerWeaponPicker and env.__giftPlayerWeaponPicker.alive) then return end
-env.__THTItemVisualizerAutoStarted=true
-local ok,problem=pcall(function()
-    assert(loadstring(game:HttpGet(%q)))()
-end)
-if not ok then
-    env.__THTItemVisualizerAutoStarted=nil
-    warn("[THT Auto Execute] "..tostring(problem))
+local autoExecuteUrl="https://raw.githubusercontent.com/minztung24-pixel/virus-visualizer-loader/main/potassium_autoexec.luau"
+local function paintAutoExecute()
+    autoExecuteButton.Text="   Auto Execute  •  "..(settings.autoExecute and "BẬT" or "TẮT")
+    autoExecuteButton.BackgroundColor3=settings.autoExecute
+        and Color3.fromRGB(57,161,112) or theme.card
 end
-]]):format(game.PlaceId,loaderUrl)
-local reconnectCode=([[
-local ok,raw=pcall(function() return readfile(%q) end)
-if not ok or type(raw)~="string" then return end
-local decoded,options=pcall(function()
-    return game:GetService("HttpService"):JSONDecode(raw)
-end)
-if not decoded or type(options)~="table" or options.autoReconnect~=true then return end
-]]):format("THT_Item_Visualizer_"..tostring(game.PlaceId)..".json")..autoBootCode
-local queuedReconnect=false
-local function queueReconnect()
-    if queuedReconnect then return true end
-    local queue=queue_on_teleport or queueonteleport
-    if type(queue)~="function" then return false end
-    local ok=pcall(queue,reconnectCode)
-    if ok then queuedReconnect=true end
-    return ok
-end
-local automationLabels={autoExecute="Auto Execute",autoReconnect="Auto Reconnect",
-    showStatus="Show Status",antiAfk="Anti-AFK"}
-local function paintAutomation()
-    for key,button in pairs(automationButtons) do
-        button.Text="   "..automationLabels[key]..(settings[key] and "  •  BẬT" or "  •  TẮT")
-        button.BackgroundColor3=settings[key] and Color3.fromRGB(57,161,112) or theme.card
+paintAutoExecute()
+on(autoExecuteButton.MouseButton1Click,function()
+    if not settingsPersistent then
+        setStatus("Auto Execute cần Potassium lưu cài đặt vào file.")
+        return
     end
-    statusBar.Visible=settings.showStatus
-end
-paintAutomation()
-for key,button in pairs(automationButtons) do
-    on(button.MouseButton1Click,function()
-        local enabled=not settings[key]
-        local needsDisk=key=="autoExecute" or key=="autoReconnect"
-        if needsDisk and not settingsPersistent then
-            setStatus(automationLabels[key].." cần Potassium lưu cài đặt vào file.")
-            return
-        end
-        settings[key]=enabled
-        if needsDisk then
-            local saved=saveSettings()
-            badge.Text=saved and "SAVE" or "RAM"
-            if not saved then
-                settings[key]=not enabled
-                saveSettings()
-                setStatus("Không lưu được "..automationLabels[key].."; đã giữ cài đặt cũ.")
-                return
-            end
-            if key=="autoReconnect" and enabled and not queueReconnect() then
-                settings[key]=false
-                saveSettings()
-                setStatus("Auto Reconnect cần queue_on_teleport của Potassium.")
-                return
-            end
-        else
-            persistSettings()
-        end
-        paintAutomation()
-        setStatus(automationLabels[key]..(enabled and ": BẬT" or ": TẮT"))
-    end)
-end
-if settings.autoReconnect then queueReconnect() end
-on(localPlayer.Idled,function()
-    if not settings.antiAfk then return end
-    local camera=workspace.CurrentCamera
-    if not camera then return end
-    local ok,problem=pcall(function()
-        local virtualUser=game:GetService("VirtualUser")
-        virtualUser:CaptureController()
-        virtualUser:Button2Down(Vector2.zero,camera.CFrame)
-        task.wait(0.15)
-        virtualUser:Button2Up(Vector2.zero,camera.CFrame)
-    end)
-    if not ok then setStatus("Anti-AFK không gửi được thao tác: "..tostring(problem)) end
+    local enabled=not settings.autoExecute
+    settings.autoExecute=enabled
+    local saved=saveSettings()
+    badge.Text=saved and "SAVE" or "RAM"
+    if not saved then
+        settings.autoExecute=not enabled
+        saveSettings()
+        setStatus("Không lưu được Auto Execute; đã giữ cài đặt cũ.")
+        return
+    end
+    paintAutoExecute()
+    setStatus(enabled and "Đã bật. Mỗi máy cần cài file Potassium autoexec một lần."
+        or "Đã tắt Auto Execute cho game này.")
+end)
+on(autoExecuteLinkButton.MouseButton1Click,function()
+    if type(setclipboard)=="function" then
+        local ok=pcall(setclipboard,autoExecuteUrl)
+        setStatus(ok and "Đã sao chép link file autoexec; đặt file vào Potassium/autoexec."
+            or "Không sao chép được link file autoexec.")
+    else
+        setStatus("Mở GitHub và tải potassium_autoexec.luau vào Potassium/autoexec.")
+    end
 end)
 on(shineRightButton.MouseButton1Click,function()
     settings.developerShineDirection="right"
@@ -5294,7 +5237,11 @@ local function createCloneSocialFeature(api)
         if #name < 3 or #name > 20 or not name:match("^[%w_]+$") then return nil end
         return name
     end
+    local rayParams, rayClone, rayCharacter
     local function paramsFor(clone)
+        if rayParams and rayClone==clone and rayCharacter==player.Character then
+            return rayParams
+        end
         local params = RaycastParams.new()
         params.FilterType = Enum.RaycastFilterType.Exclude
         local excluded = {folder, clone}
@@ -5302,6 +5249,7 @@ local function createCloneSocialFeature(api)
         params.FilterDescendantsInstances = excluded
         params.RespectCanCollide = true
         params.IgnoreWater = true
+        rayParams, rayClone, rayCharacter = params, clone, player.Character
         return params
     end
     local function floorAt(point, params)
@@ -5459,7 +5407,9 @@ local function createCloneSocialFeature(api)
                     if not known[a] or not known[b] then
                         local forward=known[a]==true
                         links[#links+1]={joint=joint,parent=forward and a or b,
-                            child=forward and b or a,forward=forward}
+                            child=forward and b or a,forward=forward,
+                            motor=joint:IsA("Motor6D"),
+                            motionName=joint.Name:gsub("%s",""):lower()}
                         known[forward and b or a]=true
                     end
                     table.remove(pending,index)
@@ -5498,9 +5448,9 @@ local function createCloneSocialFeature(api)
         for _, link in ipairs(actor.links) do
             local joint=link.joint
             local transform=CFrame.identity
-            if joint:IsA("Motor6D") then
+            if link.motor then
                 transform=usePack and joint.Transform
-                    or nativeTransform(actor,joint.Name:gsub("%s",""):lower())
+                    or nativeTransform(actor,link.motionName)
             end
             if link.parent.Parent and link.child.Parent then
                 if link.forward then
@@ -5515,6 +5465,8 @@ local function createCloneSocialFeature(api)
     local function placeActor(actor,bob)
         local frame=CFrame.new(actor.position+Vector3.new(0,bob,0))
             *CFrame.Angles(0,actor.facing,0)
+        if actor.lastFrame==frame and actor.root.CFrame==frame then return end
+        actor.lastFrame=frame
         actor.model:PivotTo(frame*actor.rootRelative:Inverse())
     end
     local function visibleFootBottom(model)
@@ -5940,13 +5892,16 @@ local function createCloneSocialFeature(api)
                 updateTrack(actor)
                 placeActor(actor,bob)
                 poseActor(actor)
-                -- Humanoid can reset collision flags after parenting.
-                for _, part in ipairs(actor.parts) do
-                    if part.Parent then
-                        if not part.Anchored then part.Anchored=true end
-                        if part.CanCollide then part.CanCollide=false end
-                        if part.CanTouch then part.CanTouch=false end
-                        if part.CanQuery then part.CanQuery=false end
+                -- Recheck rarely: cleanModel already sets these before parenting.
+                if not actor.collisionCheckedAt or now-actor.collisionCheckedAt>=1 then
+                    actor.collisionCheckedAt=now
+                    for _, part in ipairs(actor.parts) do
+                        if part.Parent then
+                            if not part.Anchored then part.Anchored=true end
+                            if part.CanCollide then part.CanCollide=false end
+                            if part.CanTouch then part.CanTouch=false end
+                            if part.CanQuery then part.CanQuery=false end
+                        end
                     end
                 end
             end
