@@ -5409,7 +5409,8 @@ local function createCloneSocialFeature(api)
                         links[#links+1]={joint=joint,parent=forward and a or b,
                             child=forward and b or a,forward=forward,
                             motor=joint:IsA("Motor6D"),
-                            motionName=joint.Name:gsub("%s",""):lower()}
+                            motionName=joint.Name:gsub("%s",""):lower(),
+                            invC0=joint.C0:Inverse(),invC1=joint.C1:Inverse()}
                         known[forward and b or a]=true
                     end
                     table.remove(pending,index)
@@ -5453,12 +5454,14 @@ local function createCloneSocialFeature(api)
                     or nativeTransform(actor,link.motionName)
             end
             if link.parent.Parent and link.child.Parent then
+                local frame
                 if link.forward then
-                    link.child.CFrame=link.parent.CFrame*joint.C0*transform*joint.C1:Inverse()
+                    frame=link.parent.CFrame*joint.C0*transform*link.invC1
                 else
-                    link.child.CFrame=link.parent.CFrame*joint.C1
-                        *transform:Inverse()*joint.C0:Inverse()
+                    frame=link.parent.CFrame*joint.C1
+                        *transform:Inverse()*link.invC0
                 end
+                if link.child.CFrame~=frame then link.child.CFrame=frame end
             end
         end
     end
